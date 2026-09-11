@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dotnet: ["8.0.x", "10.0.x"]
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      DOTNET_ROLL_FORWARD: LatestMajor
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: |
+            8.0.x
+            ${{ matrix.dotnet }}
+      - run: scripts/check-openapi.sh
+      - run: dotnet restore ViaPost.sln --locked-mode
+      - run: dotnet build ViaPost.sln --configuration Release --no-restore
+      - run: dotnet test ViaPost.sln --configuration Release --no-build
+      - run: dotnet pack src/ViaPost/ViaPost.csproj --configuration Release --no-build --output artifacts
+      - name: Verify isolated package consumer
+        run: |
+          mkdir -p "${RUNNER_TEMP}/consumer"
+          cd "${RUNNER_TEMP}/consumer"
+          dotnet new console --framework net8.0
+          version="$(sed -n 's|.*<Version>\([^<]*\)</Version>.*|\1|p' "${GITHUB_WORKSPACE}/src/ViaPost/ViaPost.csproj")"
+          dotnet add package ViaPost --version "$version" --source "${GITHUB_WORKSPACE}/artifacts"
+          printf '%s\n' 'using ViaPost; using var client = new ViaPostClient("vp_test_consumer"); Console.WriteLine(client.Usage is not null);' > Program.cs
+          dotnet run --no-restore

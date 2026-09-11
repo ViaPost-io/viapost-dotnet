@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ViaPost", "src/ViaPost/ViaPost.csproj", "{679890E7-A954-4DE6-A0B6-46064B548F78}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ViaPost.Tests", "tests/ViaPost.Tests/ViaPost.Tests.csproj", "{ED48B63B-A3D4-4147-BF59-C9433DB455A0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ViaPost.Example", "examples/ViaPost.Example.csproj", "{D96877E3-272E-42EE-83BE-CC93B47FAB34}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{679890E7-A954-4DE6-A0B6-46064B548F78}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{679890E7-A954-4DE6-A0B6-46064B548F78}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{679890E7-A954-4DE6-A0B6-46064B548F78}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{679890E7-A954-4DE6-A0B6-46064B548F78}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ED48B63B-A3D4-4147-BF59-C9433DB455A0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ED48B63B-A3D4-4147-BF59-C9433DB455A0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ED48B63B-A3D4-4147-BF59-C9433DB455A0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ED48B63B-A3D4-4147-BF59-C9433DB455A0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D96877E3-272E-42EE-83BE-CC93B47FAB34}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D96877E3-272E-42EE-83BE-CC93B47FAB34}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D96877E3-272E-42EE-83BE-CC93B47FAB34}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D96877E3-272E-42EE-83BE-CC93B47FAB34}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
