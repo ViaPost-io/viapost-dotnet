@@ -1,0 +1,137 @@
+name: Release .NET package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag; must equal v + project version
+        required: true
+        type: string
+      publish_nuget:
+        description: Also publish this verified package to NuGet.org
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "8.0.x"
+      - name: Require exact release tag commit on main
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Verify version and contract
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          scripts/check-release-tag.sh "$RELEASE_TAG"
+          scripts/check-openapi.sh
+      - run: dotnet restore ViaPost.sln --locked-mode
+      - run: dotnet build ViaPost.sln --configuration Release --no-restore
+      - run: dotnet test ViaPost.sln --configuration Release --no-build
+      - run: dotnet pack src/ViaPost/ViaPost.csproj --configuration Release --no-build --output artifacts
+      - name: Test package in isolated consumer
+        run: |
+          mkdir -p "${RUNNER_TEMP}/consumer"
+          cd "${RUNNER_TEMP}/consumer"
+          dotnet new console --framework net8.0
+          version="$(sed -n 's|.*<Version>\([^<]*\)</Version>.*|\1|p' "${GITHUB_WORKSPACE}/src/ViaPost/ViaPost.csproj")"
+          dotnet add package ViaPost --version "$version" --source "${GITHUB_WORKSPACE}/artifacts"
+          printf '%s\n' 'using ViaPost; using var client = new ViaPostClient("vp_test_consumer"); Console.WriteLine(client.Send is not null);' > Program.cs
+          dotnet run --no-restore
+      - name: Create checksums
+        run: |
+          cd artifacts
+          sha256sum *.nupkg *.snupkg > SHA256SUMS
+          chmod a-w *.nupkg *.snupkg SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dotnet-packages
+          path: |
+            artifacts/*.nupkg
+            artifacts/*.snupkg
+            artifacts/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+
+  attach-to-github-release:
+    needs: verify-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: dotnet-packages
+          path: artifacts
+      - name: Attach packages and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: gh release upload "$RELEASE_TAG" artifacts/*
+
+  attest-build-provenance:
+    needs: verify-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: dotnet-packages
+          path: artifacts
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/*.nupkg
+            artifacts/*.snupkg
+
+  publish-to-nuget:
+    needs: [verify-and-build, attach-to-github-release, attest-build-provenance]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_nuget == true
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: dotnet-packages
+          path: artifacts
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "8.0.x"
+      - name: Publish to NuGet.org only after manual opt-in
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          package="$(find artifacts -maxdepth 1 -type f -name 'ViaPost.*.nupkg' ! -name '*.snupkg' -print -quit)"
+          test -n "$package"
+          dotnet nuget push "$package" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
