@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected="cb61b81b3276679426504eae4161e610eb5520aca2cd71cd267ed62628c518e4"
+expected="$(ruby -rjson -e 'puts JSON.parse(File.read("openapi-source.json")).fetch("snapshot_sha256")')"
+source_commit="$(ruby -rjson -e 'puts JSON.parse(File.read("openapi-source.json")).fetch("source_commit")')"
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum openapi.yaml | awk '{print $1}')"
 else
@@ -12,11 +13,31 @@ test "$actual" = "$expected" || {
   exit 1
 }
 
+ruby -ryaml -rjson -e '
+  document = YAML.safe_load(File.read("openapi.yaml"), aliases: false)
+  metadata = JSON.parse(File.read("openapi-source.json"))
+  operations = document.fetch("paths").values.flat_map do |path|
+    path.values.select { |operation| operation.is_a?(Hash) && operation.key?("operationId") }
+  end
+  authenticated = operations.select do |operation|
+    Array(operation["security"]).any? { |requirement| requirement.key?("bearerApiKey") }
+  end
+  anonymous = operations.select { |operation| operation["security"] == [] }.map { |operation| operation.fetch("operationId") }.sort
+  expected_anonymous = metadata.fetch("anonymous_operations_not_exposed").sort
+  abort "authenticated operation count changed" unless authenticated.length == metadata.fetch("authenticated_operation_count")
+  abort "anonymous operation policy changed" unless anonymous == expected_anonymous
+' || {
+  echo "OpenAPI operation policy drifted; review the typed Bearer surface and anonymous exclusions" >&2
+  exit 1
+}
+
 if [[ -n "${VIAPOST_OPENAPI_SOURCE:-}" ]]; then
-  cmp --silent openapi.yaml "$VIAPOST_OPENAPI_SOURCE" || {
-    echo "Bundled OpenAPI differs from $VIAPOST_OPENAPI_SOURCE" >&2
+  ruby -ryaml -e \
+    'bundled = YAML.safe_load(File.read(ARGV[0]), aliases: false); source = YAML.safe_load(File.read(ARGV[1]), aliases: false); abort unless bundled == source' \
+    openapi.yaml "$VIAPOST_OPENAPI_SOURCE" || {
+    echo "Bundled OpenAPI differs semantically from $VIAPOST_OPENAPI_SOURCE" >&2
     exit 1
   }
 fi
 
-echo "OpenAPI OK: source commit 891adebbe79a26178fb780ec986172c890a5e261, SHA-256 $actual"
+echo "OpenAPI OK: source commit $source_commit, SHA-256 $actual"

@@ -20,13 +20,7 @@ jobs:
           ruby-version: "3.1"
       - name: Compare with canonical main contract
         run: |
-          curl --fail --location --silent --show-error \
+          scripts/download-openapi.rb \
             https://docs.viapost.io/openapi/public.yaml \
-            --output /tmp/viapost-public.yaml
-          if ! ruby -ryaml -e \
-            'abort unless YAML.safe_load_file(ARGV[0], aliases: false) == YAML.safe_load_file(ARGV[1], aliases: false)' \
-            openapi.yaml /tmp/viapost-public.yaml; then
-            echo 'The canonical public contract changed; update the SDK surface and vendored OpenAPI.' >&2
-            exit 1
-          fi
-          scripts/check-openapi.sh
+            /tmp/viapost-public.yaml
+          VIAPOST_OPENAPI_SOURCE=/tmp/viapost-public.yaml scripts/check-openapi.sh

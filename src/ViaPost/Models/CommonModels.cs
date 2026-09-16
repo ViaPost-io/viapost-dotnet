@@ -3,6 +3,48 @@ using System.Text.Json.Serialization;
 
 namespace ViaPost.Models;
 
+[JsonConverter(typeof(OptionalValueJsonConverterFactory))]
+public readonly struct OptionalValue<T>
+{
+    internal OptionalValue(T value)
+    {
+        HasValue = true;
+        Value = value;
+    }
+
+    public bool HasValue { get; }
+    public T? Value { get; }
+
+}
+
+public static class OptionalValue
+{
+    public static OptionalValue<T> From<T>(T value) => new(value);
+}
+
+public sealed class OptionalValueJsonConverterFactory : JsonConverterFactory
+{
+    public override bool CanConvert(Type typeToConvert) =>
+        typeToConvert.IsGenericType && typeToConvert.GetGenericTypeDefinition() == typeof(OptionalValue<>);
+
+    public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
+    {
+        var valueType = typeToConvert.GetGenericArguments()[0];
+        return (JsonConverter)Activator.CreateInstance(typeof(OptionalValueJsonConverter<>).MakeGenericType(valueType))!;
+    }
+
+    private sealed class OptionalValueJsonConverter<TValue> : JsonConverter<OptionalValue<TValue>>
+    {
+        public override bool HandleNull => true;
+
+        public override OptionalValue<TValue> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            OptionalValue.From(JsonSerializer.Deserialize<TValue>(ref reader, options)!);
+
+        public override void Write(Utf8JsonWriter writer, OptionalValue<TValue> value, JsonSerializerOptions options) =>
+            JsonSerializer.Serialize(writer, value.Value, options);
+    }
+}
+
 public abstract record ExtensibleModel
 {
     [JsonExtensionData]

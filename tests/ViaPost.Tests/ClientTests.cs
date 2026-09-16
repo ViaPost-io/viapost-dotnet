@@ -24,6 +24,19 @@ public sealed class ClientTests
         Assert.Throws<ArgumentException>(() => new ViaPostClient(new ViaPostClientOptions("secret", new Uri("https://user@example.com"))));
         Assert.Throws<ArgumentException>(() => new ViaPostClient(new ViaPostClientOptions("secret", new Uri("https://api.example.com?tenant=other"))));
         Assert.Throws<ArgumentException>(() => new ViaPostClient(new ViaPostClientOptions("secret", new Uri("https://api.example.com#fragment"))));
+        Assert.Throws<ArgumentException>(() => new ViaPostClient(new ViaPostClientOptions("secret", new Uri("https://status.viapost.io"))));
+    }
+
+    [Fact]
+    public void Client_options_do_not_expose_or_serialize_the_api_key()
+    {
+        const string secret = "vp_never_serialize_this";
+        var options = new ViaPostClientOptions(secret);
+
+        Assert.Null(typeof(ViaPostClientOptions).GetProperty("ApiKey"));
+        Assert.DoesNotContain(secret, JsonSerializer.Serialize(options), StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, options.ToString(), StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", options.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -49,7 +62,7 @@ public sealed class ClientTests
         Assert.Equal("Bearer", request.AuthorizationScheme);
         Assert.Equal("test-secret", request.AuthorizationParameter);
         Assert.Equal("idem-1", request.IdempotencyKey);
-        Assert.Contains("viapost-dotnet/0.1.0", request.UserAgent);
+        Assert.Contains("viapost-dotnet/0.2.0", request.UserAgent);
         Assert.DoesNotContain("test-secret", request.Uri, StringComparison.Ordinal);
     }
 
@@ -108,6 +121,60 @@ public sealed class ClientTests
     }
 
     [Fact]
+    public async Task Suppression_csv_export_uses_its_40_mib_limit_without_raising_the_json_limit()
+    {
+        var csv = new byte[ViaPostClientOptions.DefaultMaximumResponseBytes + 1];
+        var handler = new QueueHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(csv) });
+        using var client = Create(handler);
+
+        var downloaded = await client.Suppressions.ExportAsync();
+
+        Assert.Equal(csv.Length, downloaded.Length);
+        Assert.Equal(40 * 1024 * 1024, ViaPostClientOptions.DefaultMaximumExportBytes);
+        Assert.Equal("text/csv", Assert.Single(handler.Requests).Accept);
+    }
+
+    [Fact]
+    public async Task Configured_suppression_csv_export_limit_is_enforced()
+    {
+        var handler = new QueueHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[1025]) });
+        using var client = new ViaPostClient(
+            new ViaPostClientOptions("test-secret", new Uri("https://api.example.test")) { MaximumExportBytes = 1024 },
+            new HttpClient(handler));
+
+        var error = await Assert.ThrowsAsync<ViaPostResponseTooLargeException>(() => client.Suppressions.ExportAsync());
+
+        Assert.Equal(1024, error.MaximumBytes);
+    }
+
+    [Fact]
+    public void Configured_raw_response_limits_reject_values_above_the_defensive_ceiling()
+    {
+        var rawOptions = new ViaPostClientOptions("test-secret")
+        {
+            MaximumRawMessageBytes = ViaPostClientOptions.MaximumRawResponseBytesLimit + 1
+        };
+        var exportOptions = new ViaPostClientOptions("test-secret")
+        {
+            MaximumExportBytes = ViaPostClientOptions.MaximumRawResponseBytesLimit + 1
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ViaPostClient(rawOptions));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ViaPostClient(exportOptions));
+    }
+
+    [Fact]
+    public void Configured_json_response_limit_rejects_values_above_the_defensive_ceiling()
+    {
+        var options = new ViaPostClientOptions("test-secret")
+        {
+            MaximumResponseBytes = ViaPostClientOptions.MaximumResponseBytesLimit + 1
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ViaPostClient(options));
+    }
+
+    [Fact]
     public async Task Raw_message_errors_keep_the_json_response_limit()
     {
         var payload = new byte[ViaPostClientOptions.DefaultMaximumResponseBytes + 1];
@@ -156,6 +223,25 @@ public sealed class ClientTests
         Assert.DoesNotContain("test-secret", error.ErrorCode, StringComparison.Ordinal);
         Assert.DoesNotContain("test-secret", error.RequestId, StringComparison.Ordinal);
         Assert.DoesNotContain("test-secret", error.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Api_error_redacts_named_secrets_from_every_diagnostic_field()
+    {
+        const string secret = "whsec_never_log_this";
+        var body = JsonSerializer.Serialize(new
+        {
+            error = new { code = "invalid", message = $"failed {secret}", request_id = $"req-{secret}", secret }
+        });
+        var handler = new QueueHandler(_ => Json(HttpStatusCode.BadRequest, body));
+        using var client = Create(handler);
+
+        var error = await Assert.ThrowsAsync<ViaPostApiException>(() => client.Messages.ListAsync());
+
+        Assert.DoesNotContain(secret, error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, error.ErrorCode, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, error.RequestId, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, error.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -317,10 +403,12 @@ public sealed class ClientTests
     public void One_time_webhook_secret_is_redacted_from_string_representation()
     {
         const string secret = "whsec_never_log_this";
-        var response = new CreateWebhookResponse { Secret = secret };
+        var response = new CreateWebhookResponse { Secret = SensitiveString.From(secret) };
 
         Assert.DoesNotContain(secret, response.ToString(), StringComparison.Ordinal);
         Assert.Contains("[REDACTED]", response.ToString(), StringComparison.Ordinal);
+        Assert.Equal(secret, response.Secret.Reveal());
+        Assert.DoesNotContain(secret, JsonSerializer.Serialize(response), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -379,13 +467,14 @@ public sealed class ClientTests
 
         Assert.True(tested.IsTest);
         Assert.Equal(deliveryId, replayed.SourceDeliveryId);
-        Assert.Equal(43, rotated.Secret?.Length);
+        Assert.Equal(43, rotated.Secret?.Reveal().Length);
         Assert.Collection(handler.Requests,
             request => Assert.Equal("test-operation-1", request.IdempotencyKey),
             request => Assert.Equal("replay-operation-1", request.IdempotencyKey),
             request => Assert.Equal("rotate-operation-1", request.IdempotencyKey));
         Assert.All(handler.Requests, request => Assert.Equal("{}", request.Body));
         Assert.DoesNotContain(new string('s', 43), rotated.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('s', 43), JsonSerializer.Serialize(rotated), StringComparison.Ordinal);
     }
 
     [Fact]

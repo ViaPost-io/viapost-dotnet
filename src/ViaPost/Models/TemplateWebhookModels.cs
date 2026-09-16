@@ -74,7 +74,7 @@ public sealed record CreateWebhookRequest(Uri Url, IReadOnlyList<string> EventTy
 public sealed record CreateWebhookResponse
 {
     public WebhookEndpoint Endpoint { get; init; } = new();
-    public string Secret { get; init; } = string.Empty;
+    public SensitiveString Secret { get; init; } = SensitiveString.Empty;
 
     public override string ToString() => $"{nameof(CreateWebhookResponse)} {{ Endpoint = {Endpoint}, Secret = [REDACTED] }}";
 }
@@ -157,7 +157,7 @@ public sealed record WebhookReplayAccepted : WebhookOperationAccepted
 public sealed record RotateWebhookSecretResponse
 {
     public WebhookEndpoint Endpoint { get; init; } = new();
-    public string? Secret { get; init; }
+    public SensitiveString? Secret { get; init; }
     public DateTimeOffset RotatedAt { get; init; }
 
     public override string ToString() => $"{nameof(RotateWebhookSecretResponse)} {{ Endpoint = {Endpoint}, Secret = [REDACTED], RotatedAt = {RotatedAt:O} }}";

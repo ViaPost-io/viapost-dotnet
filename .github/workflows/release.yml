@@ -22,6 +22,8 @@ jobs:
   verify-and-build:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
@@ -34,6 +36,14 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "8.0.x"
+      - name: Freeze verified source commit
+        id: source
+        env:
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          SOURCE_SHA=$(git rev-parse HEAD)
+          test "$SOURCE_SHA" = "$EVENT_SHA"
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
       - name: Require exact release tag commit on main
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -116,8 +126,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ needs.verify-and-build.outputs.source_sha }}
         run: |
+          test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$SOURCE_SHA"
           verify_published_assets() {
             directory="$1"
             (cd "$directory" && sha256sum -c SHA256SUMS)
@@ -146,6 +157,7 @@ jobs:
             verify_published_assets "$published"
             gh release edit "$RELEASE_TAG" --draft=false
           fi
+          test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$SOURCE_SHA"
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
 
   publish-to-nuget:

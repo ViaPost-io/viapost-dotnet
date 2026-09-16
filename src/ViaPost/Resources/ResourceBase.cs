@@ -18,6 +18,7 @@ public abstract class ResourceBase
 
     private static string Format(object value) => value switch
     {
+        bool boolean => boolean ? "true" : "false",
         DateTimeOffset timestamp => timestamp.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
         _ => value.ToString() ?? string.Empty
