@@ -82,6 +82,57 @@ public sealed class ClientTests
     }
 
     [Fact]
+    public async Task Raw_message_uses_its_40_mib_limit_without_raising_the_json_limit()
+    {
+        var raw = new byte[ViaPostClientOptions.DefaultMaximumResponseBytes + 1];
+        var handler = new QueueHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(raw) });
+        using var client = Create(handler);
+
+        var downloaded = await client.Messages.GetRawAsync(Guid.NewGuid());
+
+        Assert.Equal(raw.Length, downloaded.Length);
+        Assert.Equal(40 * 1024 * 1024, ViaPostClientOptions.DefaultMaximumRawMessageBytes);
+    }
+
+    [Fact]
+    public async Task Configured_raw_message_limit_is_enforced()
+    {
+        var handler = new QueueHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[1025]) });
+        using var client = new ViaPostClient(
+            new ViaPostClientOptions("test-secret", new Uri("https://api.example.test")) { MaximumRawMessageBytes = 1024 },
+            new HttpClient(handler));
+
+        var error = await Assert.ThrowsAsync<ViaPostResponseTooLargeException>(() => client.Messages.GetRawAsync(Guid.NewGuid()));
+
+        Assert.Contains("1024", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Raw_message_errors_keep_the_json_response_limit()
+    {
+        var payload = new byte[ViaPostClientOptions.DefaultMaximumResponseBytes + 1];
+        var handler = new QueueHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new ByteArrayContent(payload) });
+        using var client = Create(handler);
+
+        var error = await Assert.ThrowsAsync<ViaPostResponseTooLargeException>(() => client.Messages.GetRawAsync(Guid.NewGuid()));
+
+        Assert.Equal(ViaPostClientOptions.DefaultMaximumResponseBytes, error.MaximumBytes);
+    }
+
+    [Fact]
+    public async Task Small_raw_limit_does_not_hide_a_bounded_api_error()
+    {
+        var handler = new QueueHandler(_ => Json(HttpStatusCode.BadRequest, """{"error":{"code":"raw_unavailable","message":"not available"}}"""));
+        using var client = new ViaPostClient(
+            new ViaPostClientOptions("test-secret", new Uri("https://api.example.test")) { MaximumRawMessageBytes = 1 },
+            new HttpClient(handler));
+
+        var error = await Assert.ThrowsAsync<ViaPostApiException>(() => client.Messages.GetRawAsync(Guid.NewGuid()));
+
+        Assert.Equal("raw_unavailable", error.ErrorCode);
+    }
+
+    [Fact]
     public async Task Api_error_is_typed_and_redacts_api_key()
     {
         var handler = new QueueHandler(_ => Json(HttpStatusCode.BadRequest, """{"error":{"code":"validation_error","message":"bad test-secret","request_id":"req_1"}}"""));
@@ -227,6 +278,38 @@ public sealed class ClientTests
         await Assert.ThrowsAsync<ArgumentException>(() => client.Templates.PreviewAsync(Guid.NewGuid(), new PreviewTemplateRequest { Variables = Enumerable.Range(0, 101).ToDictionary(x => x.ToString(), x => (object?)x) }));
         await Assert.ThrowsAsync<ArgumentException>(() => client.Webhooks.CreateAsync(new CreateWebhookRequest(new Uri("ftp://example.test"), ["message.delivered"])));
         await Assert.ThrowsAsync<ArgumentException>(() => client.Webhooks.CreateAsync(new CreateWebhookRequest(new Uri("https://example.test"), [])));
+        foreach (var url in new[]
+        {
+            "http://example.test/hook",
+            "https://user:password@example.test/hook",
+            "https://example.test/hook#fragment",
+            "https://localhost/hook",
+            "https://localhost./hook",
+            "https://api.localhost/hook",
+            "https://127.0.0.1/hook",
+            "https://127.1/hook",
+            "https://2130706433/hook",
+            "https://0x7f000001/hook",
+            "https://10.0.0.1/hook",
+            "https://100.64.0.1/hook",
+            "https://169.254.1.1/hook",
+            "https://192.0.2.1/hook",
+            "https://198.18.0.1/hook",
+            "https://203.0.113.1/hook",
+            "https://240.0.0.1/hook",
+            "https://[::1]/hook",
+            "https://[::127.0.0.1]/hook",
+            "https://[::ffff:127.0.0.1]/hook",
+            "https://[fc00::1]/hook"
+        })
+        {
+            await Assert.ThrowsAsync<ArgumentException>(() => client.Webhooks.CreateAsync(new CreateWebhookRequest(new Uri(url), ["delivered"])));
+        }
+        await Assert.ThrowsAsync<ArgumentException>(() => client.Webhooks.CreateAsync(new CreateWebhookRequest(new Uri("https://example.test/hook"), ["delivered", "delivered"])));
+        await Assert.ThrowsAsync<ArgumentException>(() => client.Webhooks.UpdateAsync(Guid.NewGuid(), new UpdateWebhookRequest(1)));
+        await Assert.ThrowsAsync<ArgumentException>(() => client.Webhooks.TestAsync(Guid.NewGuid(), null!));
+        await Assert.ThrowsAsync<ArgumentException>(() => client.Webhooks.ReplayAsync(Guid.NewGuid(), Guid.NewGuid(), string.Empty));
+        await Assert.ThrowsAsync<ArgumentException>(() => client.Webhooks.RotateSecretAsync(Guid.NewGuid(), "bad\r\nkey"));
         Assert.Empty(handler.Requests);
     }
 
@@ -238,6 +321,115 @@ public sealed class ClientTests
 
         Assert.DoesNotContain(secret, response.ToString(), StringComparison.Ordinal);
         Assert.Contains("[REDACTED]", response.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Message_content_and_webhook_urls_are_redacted_from_string_representation()
+    {
+        var detail = new MessageDetail
+        {
+            Id = Guid.NewGuid(),
+            BodyHtml = "<p>private body</p>",
+            BodyPlain = "private body"
+        };
+        var request = new CreateWebhookRequest(new Uri("https://example.test/hook?token=never-log-this"), ["delivered"]);
+        var endpoint = new WebhookEndpoint { Url = request.Url };
+
+        Assert.DoesNotContain("private body", detail.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("example.test", request.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("never-log-this", request.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("example.test", endpoint.ToString(), StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", request.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Message_detail_and_raw_download_follow_the_content_contract()
+    {
+        var id = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var raw = "From: hello@example.com\r\nTo: person@example.com\r\n\r\nHello\r\n";
+        var handler = new QueueHandler(
+            _ => Json(HttpStatusCode.OK, $$"""{"id":"{{id}}","status":"delivered","stream":"transactional","from_address":"hello@example.com","to_address":"person@example.com","recipient_domain":"example.com","created_at":"2026-09-16T00:00:00Z","body_plain":"Hello","content_status":"available","raw_message_api_path":"/v1/messages/{{id}}/raw","content_variant":"submitted"}"""),
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Encoding.UTF8.GetBytes(raw)) });
+        using var client = Create(handler);
+
+        var detail = await client.Messages.GetAsync(id);
+        var downloaded = await client.Messages.GetRawAsync(id);
+
+        Assert.Equal("Hello", detail.BodyPlain);
+        Assert.Equal("available", detail.ContentStatus);
+        Assert.Equal(Encoding.UTF8.GetBytes(raw), downloaded);
+        Assert.Equal("application/json", handler.Requests[0].Accept);
+        Assert.Equal("message/rfc822", handler.Requests[1].Accept);
+    }
+
+    [Fact]
+    public async Task Webhook_operations_send_expected_idempotency_keys()
+    {
+        var endpointId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var deliveryId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var handler = new QueueHandler(
+            _ => Json(HttpStatusCode.Accepted, $$"""{"delivery_id":"{{Guid.NewGuid()}}","status":"queued","created_at":"2026-09-16T00:00:00Z","is_test":true}"""),
+            _ => Json(HttpStatusCode.Accepted, $$"""{"delivery_id":"{{Guid.NewGuid()}}","status":"queued","created_at":"2026-09-16T00:00:00Z","source_delivery_id":"{{deliveryId}}"}"""),
+            _ => Json(HttpStatusCode.OK, $$"""{"endpoint":{"id":"{{endpointId}}","url":"https://example.test/hook","event_types":["delivered"],"enabled":true,"max_attempts":8,"consecutive_failures":0,"disabled_at":null,"secret_rotated_at":null,"version":2,"created_at":"2026-09-16T00:00:00Z","updated_at":"2026-09-16T00:00:00Z"},"secret":"{{new string('s', 43)}}","rotated_at":"2026-09-16T00:00:00Z"}"""));
+        using var client = Create(handler);
+
+        var tested = await client.Webhooks.TestAsync(endpointId, "test-operation-1");
+        var replayed = await client.Webhooks.ReplayAsync(endpointId, deliveryId, "replay-operation-1");
+        var rotated = await client.Webhooks.RotateSecretAsync(endpointId, "rotate-operation-1");
+
+        Assert.True(tested.IsTest);
+        Assert.Equal(deliveryId, replayed.SourceDeliveryId);
+        Assert.Equal(43, rotated.Secret?.Length);
+        Assert.Collection(handler.Requests,
+            request => Assert.Equal("test-operation-1", request.IdempotencyKey),
+            request => Assert.Equal("replay-operation-1", request.IdempotencyKey),
+            request => Assert.Equal("rotate-operation-1", request.IdempotencyKey));
+        Assert.All(handler.Requests, request => Assert.Equal("{}", request.Body));
+        Assert.DoesNotContain(new string('s', 43), rotated.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Webhook_delivery_models_deserialize_the_closed_redacted_payload_contract()
+    {
+        var endpointId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var deliveryId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var messageId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var body = $$"""
+            {
+              "delivery_id":"{{deliveryId}}",
+              "event_type":"delivered",
+              "status":"delivered",
+              "attempt_count":1,
+              "created_at":"2026-09-16T00:00:00Z",
+              "updated_at":"2026-09-16T00:00:01Z",
+              "delivered_at":"2026-09-16T00:00:01Z",
+              "last_response_code":204,
+              "last_duration_ms":12,
+              "is_test":false,
+              "payload_redacted":{
+                "event_type":"delivered",
+                "message_id":"{{messageId}}",
+                "occurred_at":"2026-09-16T00:00:00Z",
+                "test":false
+              },
+              "attempts":[{
+                "attempt":1,
+                "status":"delivered",
+                "response_code":204,
+                "duration_ms":12,
+                "attempted_at":"2026-09-16T00:00:01Z"
+              }]
+            }
+            """;
+        var handler = new QueueHandler(_ => Json(HttpStatusCode.OK, body));
+        using var client = Create(handler);
+
+        var delivery = await client.Webhooks.GetDeliveryAsync(endpointId, deliveryId);
+
+        Assert.Equal(messageId, delivery.PayloadRedacted.MessageId);
+        Assert.Equal("delivered", delivery.PayloadRedacted.EventType);
+        Assert.False(delivery.PayloadRedacted.Test);
+        Assert.Equal(204, Assert.Single(delivery.Attempts).ResponseCode);
     }
 
     [Fact]
@@ -271,16 +463,19 @@ public sealed class ClientTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests.Add(new CapturedRequest(
+                request.Method.Method,
                 request.RequestUri!.ToString(),
                 request.Headers.Authorization?.Scheme,
                 request.Headers.Authorization?.Parameter,
                 request.Headers.TryGetValues("Idempotency-Key", out var keys) ? keys.Single() : null,
-                request.Headers.UserAgent.ToString()));
+                request.Headers.UserAgent.ToString(),
+                request.Headers.Accept.SingleOrDefault()?.MediaType,
+                request.Content?.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult()));
             return Task.FromResult(_responses.Dequeue()(request));
         }
     }
 
-    private sealed record CapturedRequest(string Uri, string? AuthorizationScheme, string? AuthorizationParameter, string? IdempotencyKey, string UserAgent);
+    private sealed record CapturedRequest(string Method, string Uri, string? AuthorizationScheme, string? AuthorizationParameter, string? IdempotencyKey, string UserAgent, string? Accept, string? Body);
 
     private sealed class AsyncHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> response) : HttpMessageHandler
     {

@@ -34,7 +34,8 @@ public sealed class MessagesResource(ViaPostClient client) : ResourceBase(client
         return Client.RequestAsync<MessageList>(HttpMethod.Get, BuildQuery("/v1/messages", ("cursor", options.Cursor), ("limit", options.Limit), ("status", options.Status), ("search", options.Search), ("period", options.Period), ("api_key_id", options.ApiKeyId)), cancellationToken: cancellationToken);
     }
 
-    public Task<Message> GetAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<Message>(HttpMethod.Get, $"/v1/messages/{Id(id)}", cancellationToken: cancellationToken);
+    public Task<MessageDetail> GetAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<MessageDetail>(HttpMethod.Get, $"/v1/messages/{Id(id)}", cancellationToken: cancellationToken);
+    public Task<byte[]> GetRawAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestRawMessageAsync($"/v1/messages/{Id(id)}/raw", cancellationToken);
     public Task<MessageEventList> ListEventsAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<MessageEventList>(HttpMethod.Get, $"/v1/messages/{Id(id)}/events", cancellationToken: cancellationToken);
     public Task<EngagementResponse> GetEngagementAsync(int? days = null, CancellationToken cancellationToken = default) => Client.RequestAsync<EngagementResponse>(HttpMethod.Get, BuildDays("/v1/messages/engagement", days), cancellationToken: cancellationToken);
     public Task<TimeseriesResponse> GetTimeseriesAsync(int? days = null, CancellationToken cancellationToken = default) => Client.RequestAsync<TimeseriesResponse>(HttpMethod.Get, BuildDays("/v1/messages/timeseries", days), cancellationToken: cancellationToken);

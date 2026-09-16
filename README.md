@@ -11,13 +11,28 @@ O GitHub é o canal principal e não exige token para downloads públicos:
 
 ```bash
 mkdir -p packages
-curl -fL -o packages/ViaPost.0.1.0.nupkg \
-  https://github.com/ViaPost-io/viapost-dotnet/releases/download/v0.1.0/ViaPost.0.1.0.nupkg
+gh release download v0.1.0 --repo ViaPost-io/viapost-dotnet --dir packages \
+  --pattern 'ViaPost.0.1.0.nupkg' --pattern 'ViaPost.0.1.0.snupkg' --pattern SHA256SUMS
+(cd packages && sha256sum -c SHA256SUMS)
+source_sha="$(gh api repos/ViaPost-io/viapost-dotnet/commits/v0.1.0 --jq .sha)"
+gh attestation verify packages/ViaPost.0.1.0.nupkg \
+  --repo ViaPost-io/viapost-dotnet \
+  --source-digest "$source_sha" \
+  --signer-workflow ViaPost-io/viapost-dotnet/.github/workflows/release.yml
 dotnet add package ViaPost --version 0.1.0 --source ./packages
 ```
 
-Confira `SHA256SUMS` e a attestation da release antes de promover em produção. A publicação no
-NuGet.org é opcional e só pode ser disparada manualmente pelos mantenedores.
+O exemplo valida checksum e proveniência antes da instalação. No macOS sem `sha256sum`, use
+`shasum -a 256 -c SHA256SUMS`. A publicação no NuGet.org é opcional e só pode ser disparada
+manualmente pelos mantenedores.
+
+Mantenedores publicam no NuGet somente a partir da própria tag, depois da aprovação do ambiente
+protegido `nuget`; o workflow baixa e republica o artefato já atestado, sem recompilar:
+
+```bash
+gh workflow run release.yml --repo ViaPost-io/viapost-dotnet --ref v0.1.0 \
+  -f tag=v0.1.0 -f publish_nuget=true
+```
 
 ## Enviar e-mail
 
@@ -41,16 +56,17 @@ var result = await viapost.Send.SendAsync(
 ## Recursos
 
 - `Send`: envio com `Idempotency-Key` opcional;
-- `Messages`: listagem, detalhe, eventos, engajamento, métricas e série temporal;
+- `Messages`: listagem, detalhe com conteúdo autorizado, download RFC 5322, eventos, engajamento, métricas e série temporal;
 - `Domains`: cadastro, DNS, verificação e rotação DKIM;
 - `Templates`: drafts, preview, publicação, versões, assets e reversão;
-- `Webhooks`: listagem, criação e remoção;
+- `Webhooks`: listagem, criação, atualização, remoção, entregas, teste, replay e rotação de secret;
 - `Automations`: CRUD, ativação, drafts, execuções e cancelamento;
 - `Usage`: consumo e limite mensal.
 
 Todos os métodos aceitam `CancellationToken`. O timeout padrão é 60 segundos. GET/HEAD podem ser
 repetidos até três vezes em `429`/`5xx`, respeitando `Retry-After`; mutações nunca são repetidas.
-Respostas decodificadas são limitadas a 8 MiB.
+Respostas JSON decodificadas são limitadas a 8 MiB. Downloads raw de mensagens usam um limite
+separado de 40 MiB, alinhado ao maior payload outbound aceito pela API.
 
 ## Configuração segura
 
@@ -60,7 +76,8 @@ var options = new ViaPostClientOptions(
     new Uri("https://api.viapost.io"))
 {
     Timeout = TimeSpan.FromSeconds(60),
-    MaximumResponseBytes = 8 * 1024 * 1024
+    MaximumResponseBytes = 8 * 1024 * 1024,
+    MaximumRawMessageBytes = 40 * 1024 * 1024
 };
 using var viapost = new ViaPostClient(options);
 ```
@@ -77,8 +94,8 @@ resource methods. Every operation accepts `CancellationToken`; only safe reads a
 ## Contrato
 
 `openapi.yaml` é um bundle imutável do contrato público no commit
-`1daaf57b8c8bb7481b7c8633a68705428de1f90a`, SHA-256
-`d1f223342ad1ca326ba716af6e508c78594e1b108958cce2ec4a1efd31a9773a`.
+`891adebbe79a26178fb780ec986172c890a5e261`, SHA-256
+`cb61b81b3276679426504eae4161e610eb5520aca2cd71cd267ed62628c518e4`.
 
 ## Desenvolvimento
 

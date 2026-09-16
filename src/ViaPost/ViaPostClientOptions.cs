@@ -7,6 +7,7 @@ public sealed class ViaPostClientOptions
     public static readonly Uri DefaultBaseUri = new("https://api.viapost.io");
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
     public const int DefaultMaximumResponseBytes = 8 * 1024 * 1024;
+    public const int DefaultMaximumRawMessageBytes = 40 * 1024 * 1024;
 
     public ViaPostClientOptions(string apiKey, Uri? baseUri = null)
     {
@@ -20,6 +21,7 @@ public sealed class ViaPostClientOptions
     public Uri BaseUri { get; }
     public TimeSpan Timeout { get; init; } = DefaultTimeout;
     public int MaximumResponseBytes { get; init; } = DefaultMaximumResponseBytes;
+    public int MaximumRawMessageBytes { get; init; } = DefaultMaximumRawMessageBytes;
     public int MaximumGetAttempts { get; init; } = 3;
     public TimeSpan MaximumRetryDelay { get; init; } = TimeSpan.FromSeconds(30);
 
@@ -27,6 +29,7 @@ public sealed class ViaPostClientOptions
     {
         if (Timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(Timeout));
         if (MaximumResponseBytes < 1) throw new ArgumentOutOfRangeException(nameof(MaximumResponseBytes));
+        if (MaximumRawMessageBytes < 1) throw new ArgumentOutOfRangeException(nameof(MaximumRawMessageBytes));
         if (MaximumGetAttempts is < 1 or > 5) throw new ArgumentOutOfRangeException(nameof(MaximumGetAttempts));
         if (MaximumRetryDelay < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(MaximumRetryDelay));
     }

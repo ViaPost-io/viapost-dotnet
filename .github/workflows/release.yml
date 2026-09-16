@@ -1,8 +1,8 @@
 name: Release .NET package
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -20,6 +20,7 @@ permissions:
 
 jobs:
   verify-and-build:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -27,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.tag }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -35,15 +36,17 @@ jobs:
           dotnet-version: "8.0.x"
       - name: Require exact release tag commit on main
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
         run: |
           git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          test "$(git rev-parse HEAD)" = "$EVENT_SHA"
           git fetch --no-tags origin main
           git merge-base --is-ancestor HEAD origin/main
       - name: Verify version and contract
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           scripts/check-release-tag.sh "$RELEASE_TAG"
           scripts/check-openapi.sh
@@ -52,6 +55,8 @@ jobs:
       - run: dotnet test ViaPost.sln --configuration Release --no-build
       - run: dotnet pack src/ViaPost/ViaPost.csproj --configuration Release --no-build --output artifacts
       - name: Test package in isolated consumer
+        env:
+          NUGET_PACKAGES: ${{ runner.temp }}/nuget-packages
         run: |
           mkdir -p "${RUNNER_TEMP}/consumer"
           cd "${RUNNER_TEMP}/consumer"
@@ -63,8 +68,8 @@ jobs:
       - name: Create checksums
         run: |
           cd artifacts
-          sha256sum *.nupkg *.snupkg > SHA256SUMS
-          chmod a-w *.nupkg *.snupkg SHA256SUMS
+          sha256sum -- ./*.nupkg ./*.snupkg > SHA256SUMS
+          chmod a-w -- ./*.nupkg ./*.snupkg SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dotnet-packages
@@ -75,25 +80,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  attach-to-github-release:
-    needs: verify-and-build
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: write
-    steps:
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
-        with:
-          name: dotnet-packages
-          path: artifacts
-      - name: Attach packages and checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: gh release upload "$RELEASE_TAG" artifacts/*
-
   attest-build-provenance:
+    if: github.event_name == 'push'
     needs: verify-and-build
     runs-on: ubuntu-latest
     permissions:
@@ -108,30 +96,100 @@ jobs:
           path: artifacts
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: |
-            artifacts/*.nupkg
-            artifacts/*.snupkg
+          subject-path: artifacts/*
 
-  publish-to-nuget:
-    needs: [verify-and-build, attach-to-github-release, attest-build-provenance]
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_nuget == true
+  publish-github-release:
+    if: github.event_name == 'push'
+    needs: [verify-and-build, attest-build-provenance]
     runs-on: ubuntu-latest
-    environment: nuget
     permissions:
       actions: read
-      contents: read
+      attestations: read
+      contents: write
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: dotnet-packages
           path: artifacts
+      - name: Publish verified packages and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          verify_published_assets() {
+            directory="$1"
+            (cd "$directory" && sha256sum -c SHA256SUMS)
+            test "$(find "$directory" -maxdepth 1 -type f -printf '%f\n' | sort)" = \
+              "$(find artifacts -maxdepth 1 -type f -printf '%f\n' | sort)"
+            for artifact in "$directory"/*.nupkg "$directory"/*.snupkg; do
+              gh attestation verify "$artifact" \
+                --repo "$GH_REPO" \
+                --source-digest "$SOURCE_SHA" \
+                --signer-workflow "$GH_REPO/.github/workflows/release.yml"
+            done
+          }
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            release_is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"
+            published="$(mktemp -d)"
+            gh release download "$RELEASE_TAG" --dir "$published"
+            verify_published_assets "$published"
+            if [ "$release_is_draft" = true ]; then
+              gh release edit "$RELEASE_TAG" --draft=false
+            fi
+          else
+            gh release create "$RELEASE_TAG" artifacts/* --draft --verify-tag --generate-notes --title "$RELEASE_TAG"
+            published="$(mktemp -d)"
+            gh release download "$RELEASE_TAG" --dir "$published"
+            verify_published_assets "$published"
+            gh release edit "$RELEASE_TAG" --draft=false
+          fi
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
+
+  publish-to-nuget:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_nuget == true && github.ref == format('refs/tags/{0}', inputs.tag)
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      attestations: read
+      contents: read
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "8.0.x"
-      - name: Publish to NuGet.org only after manual opt-in
+      - name: Download, verify, and publish the exact GitHub Release package
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          package="$(find artifacts -maxdepth 1 -type f -name 'ViaPost.*.nupkg' ! -name '*.snupkg' -print -quit)"
-          test -n "$package"
-          dotnet nuget push "$package" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          test -n "$NUGET_API_KEY"
+          git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor HEAD origin/main
+          scripts/check-release-tag.sh "$RELEASE_TAG"
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
+          SOURCE_SHA="$(git rev-parse HEAD)"
+
+          mkdir artifacts
+          gh release download "$RELEASE_TAG" --dir artifacts
+          (cd artifacts && sha256sum -c SHA256SUMS)
+          for artifact in artifacts/*.nupkg artifacts/*.snupkg; do
+            gh attestation verify "$artifact" \
+              --repo "$GH_REPO" \
+              --source-digest "$SOURCE_SHA" \
+              --signer-workflow "$GH_REPO/.github/workflows/release.yml"
+          done
+
+          mapfile -t packages < <(find artifacts -maxdepth 1 -type f -name 'ViaPost.*.nupkg' ! -name '*.snupkg' -print)
+          test "${#packages[@]}" -eq 1
+          dotnet nuget push "${packages[0]}" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
