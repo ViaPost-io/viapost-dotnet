@@ -55,9 +55,26 @@ public sealed class WorkflowContractTests
     public void Contract_drift_uses_the_published_public_contract()
     {
         var workflow = File.ReadAllText(RepoFile(".github/workflows/contract-drift.yml"));
+        var checker = File.ReadAllText(RepoFile("scripts/check-openapi.sh"));
 
         Assert.Contains("https://docs.viapost.io/openapi/public.yaml", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("raw.githubusercontent.com/ViaPost-io/base-code", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("curl --fail --location", workflow, StringComparison.Ordinal);
+        Assert.Contains("scripts/download-openapi.rb", workflow, StringComparison.Ordinal);
+        Assert.Contains("VIAPOST_OPENAPI_SOURCE", workflow, StringComparison.Ordinal);
+        Assert.Contains("YAML.safe_load", checker, StringComparison.Ordinal);
+        Assert.DoesNotContain("cmp --silent", checker, StringComparison.Ordinal);
+        Assert.Contains("anonymous_operations_not_exposed", checker, StringComparison.Ordinal);
+
+        var ci = File.ReadAllText(RepoFile(".github/workflows/ci.yml"));
+        Assert.Contains("scripts/test-openapi-checker.sh", ci, StringComparison.Ordinal);
+        Assert.Contains("scripts/test-openapi-downloader.rb", ci, StringComparison.Ordinal);
+
+        var downloader = File.ReadAllText(RepoFile("scripts/download-openapi.rb"));
+        Assert.Contains("MAX_BYTES", downloader, StringComparison.Ordinal);
+        Assert.Contains("MAX_REDIRECTS", downloader, StringComparison.Ordinal);
+        Assert.Contains("same origin", downloader, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("VERIFY_PEER", downloader, StringComparison.Ordinal);
     }
 
     private static string RepoFile(string relativePath)

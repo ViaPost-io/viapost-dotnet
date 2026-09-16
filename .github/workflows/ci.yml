@@ -28,7 +28,12 @@ jobs:
           dotnet-version: |
             8.0.x
             ${{ matrix.dotnet }}
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.1"
       - run: scripts/check-openapi.sh
+      - run: scripts/test-openapi-checker.sh
+      - run: scripts/test-openapi-downloader.rb
       - run: dotnet restore ViaPost.sln --locked-mode
       - run: dotnet build ViaPost.sln --configuration Release --no-restore
       - run: dotnet test ViaPost.sln --configuration Release --no-build

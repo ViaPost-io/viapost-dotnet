@@ -7,7 +7,7 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <PackageId>ViaPost</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>ViaPost</Authors>
     <Company>ViaPost</Company>
     <Description>Official server-side .NET SDK for the ViaPost API.</Description>
@@ -26,5 +26,6 @@
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../openapi.yaml" Pack="true" PackagePath="/" />
+    <None Include="../../openapi-source.json" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

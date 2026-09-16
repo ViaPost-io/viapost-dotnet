@@ -10,7 +10,10 @@ namespace ViaPost;
 
 public sealed class ViaPostClient : IDisposable
 {
-    public const string SdkVersion = "0.1.0";
+    public const string SdkVersion = "0.2.0";
+
+    private static readonly string[] SensitiveFieldNames =
+        ["secret", "token", "password", "api_key", "authorization", "cookie"];
 
     internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -44,6 +47,12 @@ public sealed class ViaPostClient : IDisposable
         Webhooks = new WebhooksResource(this);
         Automations = new AutomationsResource(this);
         Usage = new UsageResource(this);
+        Contacts = new ContactsResource(this);
+        Events = new EventsResource(this);
+        InboundMessages = new InboundMessagesResource(this);
+        Segments = new SegmentsResource(this);
+        Suppressions = new SuppressionsResource(this);
+        Themes = new ThemesResource(this);
     }
 
     public SendResource Send { get; }
@@ -53,11 +62,29 @@ public sealed class ViaPostClient : IDisposable
     public WebhooksResource Webhooks { get; }
     public AutomationsResource Automations { get; }
     public UsageResource Usage { get; }
+    public ContactsResource Contacts { get; }
+    public EventsResource Events { get; }
+    public InboundMessagesResource InboundMessages { get; }
+    public SegmentsResource Segments { get; }
+    public SuppressionsResource Suppressions { get; }
+    public ThemesResource Themes { get; }
 
     internal async Task<T> RequestAsync<T>(HttpMethod method, string path, object? body = null, string? idempotencyKey = null, CancellationToken cancellationToken = default)
     {
         var responseBytes = await RequestBytesAsync(method, path, body, idempotencyKey, "application/json", cancellationToken: cancellationToken).ConfigureAwait(false);
         if (typeof(T) == typeof(EmptyResponse)) return (T)(object)new EmptyResponse();
+        return Deserialize<T>(responseBytes);
+    }
+
+    internal async Task<T> RequestContentAsync<T>(HttpMethod method, string path, byte[] body, string contentType, string accept = "application/json", CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        var responseBytes = await RequestPayloadAsync(method, path, body, contentType, accept, idempotencyKey: null, maximumResponseBytes: null, cancellationToken).ConfigureAwait(false);
+        return Deserialize<T>(responseBytes);
+    }
+
+    private static T Deserialize<T>(byte[] responseBytes)
+    {
         try
         {
             return JsonSerializer.Deserialize<T>(responseBytes, JsonOptions)
@@ -69,9 +96,14 @@ public sealed class ViaPostClient : IDisposable
         }
     }
 
-    internal async Task<byte[]> RequestBytesAsync(HttpMethod method, string path, object? body = null, string? idempotencyKey = null, string accept = "application/octet-stream", int? maximumResponseBytes = null, CancellationToken cancellationToken = default)
+    internal Task<byte[]> RequestBytesAsync(HttpMethod method, string path, object? body = null, string? idempotencyKey = null, string accept = "application/octet-stream", int? maximumResponseBytes = null, CancellationToken cancellationToken = default)
     {
         var payload = body is null ? null : JsonSerializer.SerializeToUtf8Bytes(body, JsonOptions);
+        return RequestPayloadAsync(method, path, payload, body is null ? null : "application/json", accept, idempotencyKey, maximumResponseBytes, cancellationToken);
+    }
+
+    private async Task<byte[]> RequestPayloadAsync(HttpMethod method, string path, byte[]? payload, string? contentType, string accept, string? idempotencyKey, int? maximumResponseBytes, CancellationToken cancellationToken)
+    {
         var retryableMethod = method == HttpMethod.Get || method == HttpMethod.Head;
         var attempts = retryableMethod ? _options.MaximumGetAttempts : 1;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -81,7 +113,7 @@ public sealed class ViaPostClient : IDisposable
         {
             try
             {
-                using var request = CreateRequest(method, path, payload, idempotencyKey, accept);
+                using var request = CreateRequest(method, path, payload, contentType, idempotencyKey, accept);
                 using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
                 var retryAfter = GetRetryAfter(response);
                 if (attempt < attempts && IsTransient(response.StatusCode))
@@ -118,6 +150,9 @@ public sealed class ViaPostClient : IDisposable
     internal Task<byte[]> RequestRawMessageAsync(string path, CancellationToken cancellationToken = default) =>
         RequestBytesAsync(HttpMethod.Get, path, accept: "message/rfc822", cancellationToken: cancellationToken, maximumResponseBytes: _options.MaximumRawMessageBytes);
 
+    internal Task<byte[]> RequestExportAsync(string path, string accept, CancellationToken cancellationToken = default) =>
+        RequestBytesAsync(HttpMethod.Get, path, accept: accept, cancellationToken: cancellationToken, maximumResponseBytes: _options.MaximumExportBytes);
+
     public void Dispose()
     {
         if (_ownsHttpClient) _httpClient.Dispose();
@@ -136,7 +171,7 @@ public sealed class ViaPostClient : IDisposable
         return handler;
     }
 
-    private HttpRequestMessage CreateRequest(HttpMethod method, string path, byte[]? body, string? idempotencyKey, string accept)
+    private HttpRequestMessage CreateRequest(HttpMethod method, string path, byte[]? body, string? contentType, string? idempotencyKey, string accept)
     {
         var request = new HttpRequestMessage(method, new Uri(_options.BaseUri, path));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
@@ -149,7 +184,7 @@ public sealed class ViaPostClient : IDisposable
                 throw new ArgumentException("Idempotency key must contain 1 to 255 visible ASCII characters.", nameof(idempotencyKey));
             request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
         }
-        if (body is not null) request.Content = new ByteArrayContent(body) { Headers = { ContentType = new MediaTypeHeaderValue("application/json") } };
+        if (body is not null) request.Content = new ByteArrayContent(body) { Headers = { ContentType = new MediaTypeHeaderValue(contentType ?? "application/octet-stream") } };
         return request;
     }
 
@@ -173,21 +208,65 @@ public sealed class ViaPostClient : IDisposable
         string code = "api_error";
         string message = $"ViaPost API returned HTTP {(int)response.StatusCode}.";
         string? requestId = null;
+        var sensitiveValues = new List<string> { _options.ApiKey };
         try
         {
             using var json = JsonDocument.Parse(bytes);
             if (json.RootElement.TryGetProperty("error", out var error))
             {
+                CollectSensitiveValues(error, sensitiveValues);
                 if (error.TryGetProperty("code", out var codeElement)) code = codeElement.GetString() ?? code;
                 if (error.TryGetProperty("message", out var messageElement)) message = messageElement.GetString() ?? message;
                 if (error.TryGetProperty("request_id", out var requestElement)) requestId = requestElement.GetString();
             }
         }
         catch (JsonException) { }
-        code = code.Replace(_options.ApiKey, "[REDACTED]", StringComparison.Ordinal);
-        message = message.Replace(_options.ApiKey, "[REDACTED]", StringComparison.Ordinal);
-        requestId = requestId?.Replace(_options.ApiKey, "[REDACTED]", StringComparison.Ordinal);
+        foreach (var secret in sensitiveValues.Where(value => !string.IsNullOrEmpty(value)).Distinct(StringComparer.Ordinal))
+        {
+            code = code.Replace(secret, "[REDACTED]", StringComparison.Ordinal);
+            message = message.Replace(secret, "[REDACTED]", StringComparison.Ordinal);
+            requestId = requestId?.Replace(secret, "[REDACTED]", StringComparison.Ordinal);
+        }
         return new ViaPostApiException(response.StatusCode, code, message, requestId, retryAfter);
+    }
+
+    private static void CollectSensitiveValues(JsonElement element, ICollection<string> values)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (IsSensitiveName(property.Name)) CollectStrings(property.Value, values);
+                else CollectSensitiveValues(property.Value, values);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray()) CollectSensitiveValues(item, values);
+        }
+    }
+
+    private static void CollectStrings(JsonElement element, ICollection<string> values)
+    {
+        if (element.ValueKind == JsonValueKind.String && element.GetString() is { Length: > 0 } value)
+        {
+            values.Add(value);
+        }
+        else if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject()) CollectStrings(property.Value, values);
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray()) CollectStrings(item, values);
+        }
+    }
+
+    private static bool IsSensitiveName(string name)
+    {
+        var normalized = name.Replace('-', '_').Replace(' ', '_').ToLowerInvariant();
+        return SensitiveFieldNames
+            .Any(candidate => normalized == candidate || normalized.EndsWith($"_{candidate}", StringComparison.Ordinal));
     }
 
     private TimeSpan RetryBackoff(int attempt) => TimeSpan.FromMilliseconds(Math.Min(250 * Math.Pow(2, attempt - 1), _options.MaximumRetryDelay.TotalMilliseconds));

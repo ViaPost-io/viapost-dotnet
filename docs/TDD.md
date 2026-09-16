@@ -51,3 +51,32 @@ neste arquivo durante a implementação.
 - **Green final host-only:** build Release sem warnings, 31/31 testes, format, OpenAPI, auditoria
   NuGet, actionlint, package/checksum e consumer com cache NuGet vazio passaram. Docker permaneceu
   desativado por solicitação operacional e não foi usado.
+
+## Sincronização do contrato em `0.2.0`
+
+18. comparar o YAML publicado semanticamente, aceitando representações byte a byte diferentes;
+19. cobrir todas as rotas autenticadas de contatos, eventos, inbound, segmentos, supressões e temas;
+20. enviar CSV com `Content-Type: text/csv` e pedir exportações com `Accept: text/csv`;
+21. preservar a distinção entre campo PATCH ausente e `null` explícito;
+22. manter health, status e inscrições anônimas fora do cliente Bearer.
+23. permitir exportações CSV maiores que 8 MiB sem elevar o limite JSON;
+24. aplicar limites independentes e configuráveis a RFC 5322 e CSV;
+25. rejeitar limites de conteúdo bruto acima do teto defensivo de 128 MiB.
+26. impedir serialização/reflection pública da API key e exigir `Reveal()` para secrets one-time;
+27. limitar o downloader OpenAPI a HTTPS, 8 MiB e três redirects na mesma origem.
+
+- **Red:** os novos testes não compilavam porque os seis recursos, os modelos e o valor opcional
+  ainda não existiam; o teste semântico também demonstrou que `cmp` rejeitava YAML equivalente.
+- **Green:** os recursos tipados, o transporte CSV e o comparador YAML fizeram as rotas e os
+  contratos passarem, mantendo downloads RFC 5322 no limite separado de 40 MiB.
+- **Refactor:** metadados de origem/hashes foram centralizados em `openapi-source.json`, booleanos de
+  query passaram a ser canônicos (`true`/`false`) e dados sensíveis receberam `ToString()` redigido.
+- **Red do limite de exportação:** o teste CSV acima de 8 MiB falhou na compilação enquanto não havia
+  uma configuração própria; `Suppressions.ExportAsync` passou a usar `MaximumExportBytes`, sem
+  alterar o teto JSON ou o limite RFC 5322.
+- **Red de segredos e downloader:** os testes mostraram `ApiKey` pública, secrets one-time como
+  strings serializáveis e `curl --location` sem restrição de origem; propriedades internas,
+  `SensitiveString` e downloader Ruby limitado fecharam os três vetores.
+- **Green final:** restore locked, format, build Release sem warnings, 38/38 testes, pack `0.2.0`,
+  auditoria NuGet, actionlint, drift semântico contra a URL publicada e consumer com cache NuGet
+  vazio passaram.
