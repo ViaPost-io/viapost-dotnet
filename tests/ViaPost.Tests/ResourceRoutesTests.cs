@@ -20,6 +20,7 @@ public sealed class ResourceRoutesTests
         var graph = JsonDocument.Parse("{}").RootElement.Clone();
 
         await client.Messages.GetAsync(id);
+        await client.Messages.GetRawAsync(id);
         await client.Messages.ListEventsAsync(id);
         await client.Messages.GetEngagementAsync(14);
         await client.Messages.GetTimeseriesAsync(14);
@@ -45,7 +46,13 @@ public sealed class ResourceRoutesTests
         await client.Templates.ArchiveAsync(id);
         await client.Templates.DeleteAsync(id);
 
-        await client.Webhooks.CreateAsync(new CreateWebhookRequest(new Uri("https://hooks.example.test/inbound"), ["message.delivered"]));
+        await client.Webhooks.CreateAsync(new CreateWebhookRequest(new Uri("https://hooks.example.test/inbound"), ["delivered"]));
+        await client.Webhooks.UpdateAsync(id, new UpdateWebhookRequest(1) { MaxAttempts = 8 });
+        await client.Webhooks.ListDeliveriesAsync(id, new WebhookDeliveryListOptions("cursor", 25, "delivered", "delivered"));
+        await client.Webhooks.GetDeliveryAsync(id, versionId);
+        await client.Webhooks.TestAsync(id, "test-operation-1");
+        await client.Webhooks.ReplayAsync(id, versionId, "replay-operation-1");
+        await client.Webhooks.RotateSecretAsync(id, "rotate-operation-1");
         await client.Webhooks.DeleteAsync(id);
 
         await client.Automations.CreateAsync(new CreateAutomationRequest("Onboarding"));
@@ -63,6 +70,7 @@ public sealed class ResourceRoutesTests
         Assert.Equal(
         [
             "GET /v1/messages/11111111-1111-1111-1111-111111111111",
+            "GET /v1/messages/11111111-1111-1111-1111-111111111111/raw",
             "GET /v1/messages/11111111-1111-1111-1111-111111111111/events",
             "GET /v1/messages/engagement?days=14",
             "GET /v1/messages/timeseries?days=14",
@@ -83,7 +91,14 @@ public sealed class ResourceRoutesTests
             "POST /v1/templates/11111111-1111-1111-1111-111111111111/versions/22222222-2222-2222-2222-222222222222/revert",
             "POST /v1/templates/11111111-1111-1111-1111-111111111111/archive",
             "DELETE /v1/templates/11111111-1111-1111-1111-111111111111",
-            "POST /v1/webhooks", "DELETE /v1/webhooks/11111111-1111-1111-1111-111111111111",
+            "POST /v1/webhooks",
+            "PATCH /v1/webhooks/11111111-1111-1111-1111-111111111111",
+            "GET /v1/webhooks/11111111-1111-1111-1111-111111111111/deliveries?cursor=cursor&limit=25&status=delivered&event_type=delivered",
+            "GET /v1/webhooks/11111111-1111-1111-1111-111111111111/deliveries/22222222-2222-2222-2222-222222222222",
+            "POST /v1/webhooks/11111111-1111-1111-1111-111111111111/test",
+            "POST /v1/webhooks/11111111-1111-1111-1111-111111111111/deliveries/22222222-2222-2222-2222-222222222222/replay",
+            "POST /v1/webhooks/11111111-1111-1111-1111-111111111111/secret/rotate",
+            "DELETE /v1/webhooks/11111111-1111-1111-1111-111111111111",
             "POST /v1/automations", "GET /v1/automations/11111111-1111-1111-1111-111111111111",
             "PATCH /v1/automations/11111111-1111-1111-1111-111111111111",
             "PATCH /v1/automations/11111111-1111-1111-1111-111111111111/draft",

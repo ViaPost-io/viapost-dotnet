@@ -40,7 +40,7 @@ public sealed record SendResult : ExtensibleModel
 public sealed record AcceptedMessage(Guid MessageId, string To);
 public sealed record RejectedMessage(string To, string Reason);
 
-public sealed record Message : ExtensibleModel
+public record Message : ExtensibleModel
 {
     public Guid Id { get; init; }
     public string Status { get; init; } = string.Empty;
@@ -58,6 +58,17 @@ public sealed record Message : ExtensibleModel
     public DateTimeOffset? FirstOpenedAt { get; init; }
     public DateTimeOffset? FirstClickedAt { get; init; }
     public string? LastError { get; init; }
+}
+
+public sealed record MessageDetail : Message
+{
+    public string? BodyHtml { get; init; }
+    public string? BodyPlain { get; init; }
+    public string? ContentStatus { get; init; }
+    public string? RawMessageApiPath { get; init; }
+    public string? ContentVariant { get; init; }
+
+    public override string ToString() => $"{nameof(MessageDetail)} {{ Id = {Id}, Status = {Status}, BodyHtml = [REDACTED], BodyPlain = [REDACTED], ContentStatus = {ContentStatus} }}";
 }
 
 public sealed record MessageList

@@ -56,6 +56,21 @@ public sealed class ViaPostClient : IDisposable
 
     internal async Task<T> RequestAsync<T>(HttpMethod method, string path, object? body = null, string? idempotencyKey = null, CancellationToken cancellationToken = default)
     {
+        var responseBytes = await RequestBytesAsync(method, path, body, idempotencyKey, "application/json", cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (typeof(T) == typeof(EmptyResponse)) return (T)(object)new EmptyResponse();
+        try
+        {
+            return JsonSerializer.Deserialize<T>(responseBytes, JsonOptions)
+                ?? throw new JsonException("Response contained JSON null.");
+        }
+        catch (JsonException exception)
+        {
+            throw new ViaPostSerializationException(exception);
+        }
+    }
+
+    internal async Task<byte[]> RequestBytesAsync(HttpMethod method, string path, object? body = null, string? idempotencyKey = null, string accept = "application/octet-stream", int? maximumResponseBytes = null, CancellationToken cancellationToken = default)
+    {
         var payload = body is null ? null : JsonSerializer.SerializeToUtf8Bytes(body, JsonOptions);
         var retryableMethod = method == HttpMethod.Get || method == HttpMethod.Head;
         var attempts = retryableMethod ? _options.MaximumGetAttempts : 1;
@@ -66,7 +81,7 @@ public sealed class ViaPostClient : IDisposable
         {
             try
             {
-                using var request = CreateRequest(method, path, payload, idempotencyKey);
+                using var request = CreateRequest(method, path, payload, idempotencyKey, accept);
                 using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
                 var retryAfter = GetRetryAfter(response);
                 if (attempt < attempts && IsTransient(response.StatusCode))
@@ -76,18 +91,12 @@ public sealed class ViaPostClient : IDisposable
                     continue;
                 }
 
-                var responseBytes = await ReadLimitedAsync(response.Content, timeout.Token).ConfigureAwait(false);
+                var responseLimit = response.IsSuccessStatusCode
+                    ? maximumResponseBytes ?? _options.MaximumResponseBytes
+                    : _options.MaximumResponseBytes;
+                var responseBytes = await ReadLimitedAsync(response.Content, responseLimit, timeout.Token).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode) throw CreateApiException(response, responseBytes, retryAfter);
-                if (typeof(T) == typeof(EmptyResponse)) return (T)(object)new EmptyResponse();
-                try
-                {
-                    return JsonSerializer.Deserialize<T>(responseBytes, JsonOptions)
-                        ?? throw new JsonException("Response contained JSON null.");
-                }
-                catch (JsonException exception)
-                {
-                    throw new ViaPostSerializationException(exception);
-                }
+                return responseBytes;
             }
             catch (ViaPostException) { throw; }
             catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
@@ -105,6 +114,9 @@ public sealed class ViaPostClient : IDisposable
 
     internal async Task RequestNoContentAsync(HttpMethod method, string path, object? body = null, CancellationToken cancellationToken = default) =>
         _ = await RequestAsync<EmptyResponse>(method, path, body, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+    internal Task<byte[]> RequestRawMessageAsync(string path, CancellationToken cancellationToken = default) =>
+        RequestBytesAsync(HttpMethod.Get, path, accept: "message/rfc822", cancellationToken: cancellationToken, maximumResponseBytes: _options.MaximumRawMessageBytes);
 
     public void Dispose()
     {
@@ -124,12 +136,12 @@ public sealed class ViaPostClient : IDisposable
         return handler;
     }
 
-    private HttpRequestMessage CreateRequest(HttpMethod method, string path, byte[]? body, string? idempotencyKey)
+    private HttpRequestMessage CreateRequest(HttpMethod method, string path, byte[]? body, string? idempotencyKey, string accept)
     {
         var request = new HttpRequestMessage(method, new Uri(_options.BaseUri, path));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
         request.Headers.UserAgent.ParseAdd($"viapost-dotnet/{SdkVersion}");
-        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.Accept.ParseAdd(accept);
         request.Headers.TryAddWithoutValidation("X-ViaPost-SDK", "dotnet");
         if (idempotencyKey is not null)
         {
@@ -141,17 +153,17 @@ public sealed class ViaPostClient : IDisposable
         return request;
     }
 
-    private async Task<byte[]> ReadLimitedAsync(HttpContent content, CancellationToken cancellationToken)
+    private static async Task<byte[]> ReadLimitedAsync(HttpContent content, int maximumResponseBytes, CancellationToken cancellationToken)
     {
-        if (content.Headers.ContentLength > _options.MaximumResponseBytes) throw new ViaPostResponseTooLargeException(_options.MaximumResponseBytes);
+        if (content.Headers.ContentLength > maximumResponseBytes) throw new ViaPostResponseTooLargeException(maximumResponseBytes);
         await using var input = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var output = new MemoryStream(Math.Min(_options.MaximumResponseBytes, 64 * 1024));
+        using var output = new MemoryStream(Math.Min(maximumResponseBytes, 64 * 1024));
         var buffer = new byte[16 * 1024];
         while (true)
         {
             var count = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
             if (count == 0) return output.ToArray();
-            if (output.Length + count > _options.MaximumResponseBytes) throw new ViaPostResponseTooLargeException(_options.MaximumResponseBytes);
+            if (output.Length + count > maximumResponseBytes) throw new ViaPostResponseTooLargeException(maximumResponseBytes);
             output.Write(buffer, 0, count);
         }
     }

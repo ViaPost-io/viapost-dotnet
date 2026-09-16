@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected="d1f223342ad1ca326ba716af6e508c78594e1b108958cce2ec4a1efd31a9773a"
+expected="cb61b81b3276679426504eae4161e610eb5520aca2cd71cd267ed62628c518e4"
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum openapi.yaml | awk '{print $1}')"
 else
@@ -19,4 +19,4 @@ if [[ -n "${VIAPOST_OPENAPI_SOURCE:-}" ]]; then
   }
 fi
 
-echo "OpenAPI OK: source commit 1daaf57b8c8bb7481b7c8633a68705428de1f90a, SHA-256 $actual"
+echo "OpenAPI OK: source commit 891adebbe79a26178fb780ec986172c890a5e261, SHA-256 $actual"
