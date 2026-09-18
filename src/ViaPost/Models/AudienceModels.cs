@@ -192,7 +192,10 @@ public sealed class SegmentJsonConverter : JsonConverter<Segment>
     {
         using var document = JsonDocument.ParseValue(ref reader);
         var root = document.RootElement;
-        if (!root.TryGetProperty("kind", out var kind) || kind.GetString() is not ("static" or "dynamic") discriminator)
+        if (!root.TryGetProperty("kind", out var kind))
+            throw new JsonException("Segment response must include kind static or dynamic.");
+        var discriminator = kind.GetString();
+        if (discriminator is not "static" and not "dynamic")
             throw new JsonException("Segment response must include kind static or dynamic.");
         return discriminator == "static"
             ? JsonSerializer.Deserialize<StaticSegment>(root.GetRawText(), options)!
