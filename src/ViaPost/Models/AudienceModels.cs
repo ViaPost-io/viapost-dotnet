@@ -160,12 +160,14 @@ public abstract record Segment : ExtensibleModel
 
 public sealed record StaticSegment : Segment
 {
+    [JsonIgnore]
     public override string Kind => "static";
     public JsonElement? Definition { get; init; }
 }
 
 public sealed record DynamicSegment : Segment
 {
+    [JsonIgnore]
     public override string Kind => "dynamic";
     public JsonElement Definition { get; init; }
 }
