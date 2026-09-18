@@ -25,4 +25,5 @@ jobs:
             /tmp/viapost-public.yaml
           VIAPOST_OPENAPI_SOURCE=/tmp/viapost-public.yaml scripts/check-openapi.sh
         env:
+          VIAPOST_CONTRACT_SOURCE_TOKEN: ${{ secrets.VIAPOST_CONTRACT_SOURCE_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
