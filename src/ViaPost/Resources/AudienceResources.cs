@@ -141,6 +141,8 @@ public sealed class SegmentsResource(ViaPostClient client) : ResourceBase(client
     {
         ArgumentNullException.ThrowIfNull(request);
         ValidateName(request.Name, nameof(request));
+        if (request is DynamicSegmentCreateRequest dynamicRequest && dynamicRequest.Definition.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("Dynamic segment definition must be a JSON object.", nameof(request));
         return Client.RequestAsync<Segment>(HttpMethod.Post, "/v1/segments", request, cancellationToken: cancellationToken);
     }
 

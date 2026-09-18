@@ -63,6 +63,7 @@ public sealed record SendEmailRequest(string From, IReadOnlyList<string> To)
     public string Stream { get; init; } = "transactional";
     public IReadOnlyList<string>? Tags { get; init; }
     public IDictionary<string, object?>? Metadata { get; init; }
+    public DateTimeOffset? ScheduledAt { get; init; }
     public Guid? TemplateId { get; init; }
     public IDictionary<string, object?>? Variables { get; init; }
     public IReadOnlyList<Attachment>? Attachments { get; init; }
@@ -105,10 +106,13 @@ public record Message : ExtensibleModel
     public string RecipientDomain { get; init; } = string.Empty;
     public Guid? ApiKeyId { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset? ScheduledAt { get; init; }
+    public DateTimeOffset? CancelledAt { get; init; }
     public DateTimeOffset? QueuedAt { get; init; }
     public DateTimeOffset? SentAt { get; init; }
     public DateTimeOffset? DeliveredAt { get; init; }
     public DateTimeOffset? FailedAt { get; init; }
+    public DateTimeOffset? SuppressedAt { get; init; }
     public DateTimeOffset? FirstOpenedAt { get; init; }
     public DateTimeOffset? FirstClickedAt { get; init; }
     public string? LastError { get; init; }

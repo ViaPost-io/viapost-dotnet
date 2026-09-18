@@ -143,7 +143,10 @@ public sealed record InboundMessageDetail : InboundMessage
     public override string ToString() => $"{nameof(InboundMessageDetail)} {{ Id = {Id}, BodyHtml = [REDACTED], BodyPlain = [REDACTED], RawMessageUrl = [REDACTED], ContentStatus = {ContentStatus} }}";
 }
 
-public sealed record Segment : ExtensibleModel
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(StaticSegment), "static")]
+[JsonDerivedType(typeof(DynamicSegment), "dynamic")]
+public abstract record Segment : ExtensibleModel
 {
     public Guid Id { get; init; }
     public string Name { get; init; } = string.Empty;
@@ -151,6 +154,20 @@ public sealed record Segment : ExtensibleModel
     public int? ContactCount { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
+    [JsonIgnore]
+    public abstract string Kind { get; }
+}
+
+public sealed record StaticSegment : Segment
+{
+    public override string Kind => "static";
+    public JsonElement? Definition { get; init; }
+}
+
+public sealed record DynamicSegment : Segment
+{
+    public override string Kind => "dynamic";
+    public JsonElement Definition { get; init; }
 }
 
 public sealed record SegmentList
@@ -160,7 +177,17 @@ public sealed record SegmentList
 }
 
 public sealed record SegmentListOptions(string? Cursor = null, int? Limit = null, string? Search = null);
-public sealed record CreateSegmentRequest(string Name) { public string? Description { get; init; } }
+public abstract record CreateSegmentRequest(string Name) { public string? Description { get; init; } }
+
+public sealed record StaticSegmentCreateRequest(string Name) : CreateSegmentRequest(Name)
+{
+    public string Kind { get; init; } = "static";
+}
+
+public sealed record DynamicSegmentCreateRequest(string Name, JsonElement Definition) : CreateSegmentRequest(Name)
+{
+    public string Kind { get; init; } = "dynamic";
+}
 
 public sealed record UpdateSegmentRequest
 {
