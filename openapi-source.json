@@ -1,6 +1,6 @@
 {
   "source_repository": "ViaPost-io/base-code",
-  "source_path": "docs/openapi/public.yaml",
+  "source_path": "docs/public/openapi/public.yaml",
   "source_commit": "2b9f310f2f2a737e1eed9ba68c99a8d1b56b6d10",
   "snapshot_sha256": "c5d5ae1d85e61b4e14e09351b14146465ce357075d2ed5fe4e034f6ff6693dc1",
   "published_url": "https://docs.viapost.io/openapi/public.yaml",
