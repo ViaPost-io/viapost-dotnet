@@ -176,7 +176,10 @@ public sealed class ContractSyncTests
             var contentType = path.Contains("/raw", StringComparison.Ordinal) ? "message/rfc822"
                 : path.Contains("/suppressions/export", StringComparison.Ordinal) ? "text/csv"
                 : "application/json";
-            var body = contentType == "application/json" ? "{}" : "content";
+            var body = contentType != "application/json" ? "content"
+                : path.StartsWith("/v1/segments", StringComparison.Ordinal)
+                    ? "{\"id\":\"11111111-1111-1111-1111-111111111111\",\"name\":\"Segment\",\"description\":null,\"kind\":\"static\",\"definition\":null,\"contact_count\":0,\"created_at\":\"2026-09-16T00:00:00Z\",\"updated_at\":\"2026-09-16T00:00:00Z\"}"
+                    : "{}";
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, contentType)
