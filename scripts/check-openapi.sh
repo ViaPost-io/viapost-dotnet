@@ -30,9 +30,9 @@ test "$actual" = "$expected" || {
 
 immutable_source="${VIAPOST_OPENAPI_COMMIT_SOURCE:-}"
 if [[ -z "$immutable_source" ]]; then
-  github_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  github_token="${VIAPOST_CONTRACT_SOURCE_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
   [[ -n "$github_token" ]] || {
-    echo "GITHUB_TOKEN is required to retrieve the immutable private source contract." >&2
+    echo "VIAPOST_CONTRACT_SOURCE_TOKEN is required to retrieve the immutable private source contract." >&2
     exit 1
   }
   immutable_source="$(mktemp)"

@@ -119,6 +119,10 @@ resource methods. Every operation accepts `CancellationToken`; only safe reads a
 em `https://docs.viapost.io/openapi/public.yaml` tem o mesmo SHA-256 e é comparada
 semanticamente. Os metadados auditáveis estão em `openapi-source.json`.
 
+Para conferir a origem privada no CI, configure `VIAPOST_CONTRACT_SOURCE_TOKEN` como secret do
+repositório ou da organização, com acesso somente leitura a Contents em `ViaPost-io/base-code`.
+O workflow não registra nem persiste esse token.
+
 O monitor baixa esse contrato somente por HTTPS, com timeout, corpo máximo de 8 MiB e no máximo
 três redirects na mesma origem.
 
