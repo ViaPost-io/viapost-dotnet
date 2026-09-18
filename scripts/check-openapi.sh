@@ -3,6 +3,8 @@ set -euo pipefail
 
 expected="$(ruby -rjson -e 'puts JSON.parse(File.read("openapi-source.json")).fetch("snapshot_sha256")')"
 source_commit="$(ruby -rjson -e 'puts JSON.parse(File.read("openapi-source.json")).fetch("source_commit")')"
+source_repository="$(ruby -rjson -e 'puts JSON.parse(File.read("openapi-source.json")).fetch("source_repository")')"
+source_path="$(ruby -rjson -e 'puts JSON.parse(File.read("openapi-source.json")).fetch("source_path")')"
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum openapi.yaml | awk '{print $1}')"
 else
@@ -10,6 +12,42 @@ else
 fi
 test "$actual" = "$expected" || {
   echo "OpenAPI bundle drift: expected $expected, got $actual" >&2
+  exit 1
+}
+
+[[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "OpenAPI source_commit must be an immutable full Git SHA." >&2
+  exit 1
+}
+[[ "$source_repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+  echo "OpenAPI source_repository is invalid." >&2
+  exit 1
+}
+[[ "$source_path" =~ ^[A-Za-z0-9_./-]+$ && "$source_path" != *".."* ]] || {
+  echo "OpenAPI source_path is invalid." >&2
+  exit 1
+}
+
+immutable_source="${VIAPOST_OPENAPI_COMMIT_SOURCE:-}"
+if [[ -z "$immutable_source" ]]; then
+  github_token="${VIAPOST_CONTRACT_SOURCE_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
+  [[ -n "$github_token" ]] || {
+    echo "VIAPOST_CONTRACT_SOURCE_TOKEN is required to retrieve the immutable private source contract." >&2
+    exit 1
+  }
+  immutable_source="$(mktemp)"
+  trap 'rm -f "$immutable_source"' EXIT
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    --header "Authorization: Bearer ${github_token}" \
+    --header 'Accept: application/vnd.github.raw+json' \
+    "https://api.github.com/repos/${source_repository}/contents/${source_path}?ref=${source_commit}" \
+    --output "$immutable_source"
+fi
+
+ruby -ryaml -e \
+  'bundled = YAML.safe_load(File.read(ARGV[0]), aliases: false); source = YAML.safe_load(File.read(ARGV[1]), aliases: false); abort unless bundled == source' \
+  openapi.yaml "$immutable_source" || {
+  echo "Bundled OpenAPI differs semantically from immutable ${source_repository}@${source_commit}:${source_path}" >&2
   exit 1
 }
 
@@ -40,4 +78,4 @@ if [[ -n "${VIAPOST_OPENAPI_SOURCE:-}" ]]; then
   }
 fi
 
-echo "OpenAPI OK: source commit $source_commit, SHA-256 $actual"
+echo "OpenAPI OK: immutable source ${source_repository}@${source_commit}:${source_path}, SHA-256 $actual"

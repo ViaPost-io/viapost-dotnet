@@ -11,6 +11,18 @@ public sealed class SendResource(ViaPostClient client) : ResourceBase(client)
         return Client.RequestAsync<SendResult>(HttpMethod.Post, "/v1/send", request, idempotencyKey, cancellationToken);
     }
 
+    public Task<BatchSendResult> SendBatchAsync(BatchSendRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Messages.Count is < 1 or > 100) throw new ArgumentException("Messages must contain 1 to 100 items.", nameof(request));
+        foreach (var item in request.Messages)
+        {
+            if (string.IsNullOrWhiteSpace(item.IdempotencyKey) || item.IdempotencyKey.Length > 255) throw new ArgumentException("Each batch item requires an idempotency key of at most 255 characters.", nameof(request));
+            Validate(item.Request);
+        }
+        return Client.RequestAsync<BatchSendResult>(HttpMethod.Post, "/v1/send/batch", request, cancellationToken: cancellationToken);
+    }
+
     private static void Validate(SendEmailRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.From)) throw new ArgumentException("From cannot be empty.", nameof(request));
@@ -37,6 +49,15 @@ public sealed class MessagesResource(ViaPostClient client) : ResourceBase(client
     public Task<MessageDetail> GetAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<MessageDetail>(HttpMethod.Get, $"/v1/messages/{Id(id)}", cancellationToken: cancellationToken);
     public Task<byte[]> GetRawAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestRawMessageAsync($"/v1/messages/{Id(id)}/raw", cancellationToken);
     public Task<MessageEventList> ListEventsAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<MessageEventList>(HttpMethod.Get, $"/v1/messages/{Id(id)}/events", cancellationToken: cancellationToken);
+    public Task<MessageTimelinePage> ListTimelineAsync(MessageTimelineOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        options ??= new();
+        if (options.Cursor is { Length: 0 } || options.Cursor?.Length > 512) throw new ArgumentException("Cursor must contain 1 to 512 characters.", nameof(options));
+        if (options.Limit is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(options), "Limit must be between 1 and 100.");
+        if (options.Period is not (null or "24h" or "7d" or "14d" or "30d")) throw new ArgumentException("Period must be 24h, 7d, 14d or 30d.", nameof(options));
+        return Client.RequestAsync<MessageTimelinePage>(HttpMethod.Get, BuildQuery("/v1/messages/events", ("cursor", options.Cursor), ("limit", options.Limit), ("period", options.Period), ("type", options.Type), ("message_id", options.MessageId)), cancellationToken: cancellationToken);
+    }
+    public Task<Message> CancelAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<Message>(HttpMethod.Post, $"/v1/messages/{Id(id)}/cancel", cancellationToken: cancellationToken);
     public Task<EngagementResponse> GetEngagementAsync(int? days = null, CancellationToken cancellationToken = default) => Client.RequestAsync<EngagementResponse>(HttpMethod.Get, BuildDays("/v1/messages/engagement", days), cancellationToken: cancellationToken);
     public Task<TimeseriesResponse> GetTimeseriesAsync(int? days = null, CancellationToken cancellationToken = default) => Client.RequestAsync<TimeseriesResponse>(HttpMethod.Get, BuildDays("/v1/messages/timeseries", days), cancellationToken: cancellationToken);
     public Task<MetricsResponse> GetMetricsAsync(int? days = null, Guid? domainId = null, CancellationToken cancellationToken = default) => Client.RequestAsync<MetricsResponse>(HttpMethod.Get, BuildQuery(BuildDays("/v1/messages/metrics", days), ("domain_id", domainId)), cancellationToken: cancellationToken);

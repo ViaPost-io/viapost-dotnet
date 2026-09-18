@@ -16,9 +16,14 @@ ruby -e '
   File.write(ARGV[1], drifted)
 ' openapi.yaml "$drifted"
 
-VIAPOST_OPENAPI_SOURCE="$equivalent" scripts/check-openapi.sh >/dev/null
+VIAPOST_OPENAPI_COMMIT_SOURCE="$equivalent" VIAPOST_OPENAPI_SOURCE="$equivalent" scripts/check-openapi.sh >/dev/null
 
-if VIAPOST_OPENAPI_SOURCE="$drifted" scripts/check-openapi.sh >/dev/null 2>&1; then
+if VIAPOST_OPENAPI_COMMIT_SOURCE="$drifted" scripts/check-openapi.sh >/dev/null 2>&1; then
+  echo "OpenAPI checker accepted an immutable source provenance mismatch" >&2
+  exit 1
+fi
+
+if VIAPOST_OPENAPI_COMMIT_SOURCE="$equivalent" VIAPOST_OPENAPI_SOURCE="$drifted" scripts/check-openapi.sh >/dev/null 2>&1; then
   echo "OpenAPI checker accepted a semantic change" >&2
   exit 1
 fi

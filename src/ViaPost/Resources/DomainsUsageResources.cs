@@ -10,6 +10,8 @@ public sealed class DomainsResource(ViaPostClient client) : ResourceBase(client)
     public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestNoContentAsync(HttpMethod.Delete, $"/v1/domains/{Id(id)}", cancellationToken: cancellationToken);
     public Task<RotateDkimResponse> RotateDkimAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<RotateDkimResponse>(HttpMethod.Post, $"/v1/domains/{Id(id)}/dkim/rotate", cancellationToken: cancellationToken);
     public Task<DnsRecordList> GetDnsAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<DnsRecordList>(HttpMethod.Get, $"/v1/domains/{Id(id)}/dns", cancellationToken: cancellationToken);
+    public Task<DomainHealth> GetHealthAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<DomainHealth>(HttpMethod.Get, $"/v1/domains/{Id(id)}/health", cancellationToken: cancellationToken);
+    public Task<InboundDomainConfiguration> GetInboundAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<InboundDomainConfiguration>(HttpMethod.Get, $"/v1/domains/{Id(id)}/inbound", cancellationToken: cancellationToken);
     public Task<Domain> VerifyAsync(Guid id, CancellationToken cancellationToken = default) => Client.RequestAsync<Domain>(HttpMethod.Post, $"/v1/domains/{Id(id)}/verify", cancellationToken: cancellationToken);
 }
 

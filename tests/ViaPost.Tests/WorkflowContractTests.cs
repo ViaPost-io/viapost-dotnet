@@ -56,12 +56,20 @@ public sealed class WorkflowContractTests
     {
         var workflow = File.ReadAllText(RepoFile(".github/workflows/contract-drift.yml"));
         var checker = File.ReadAllText(RepoFile("scripts/check-openapi.sh"));
+        var release = File.ReadAllText(RepoFile(".github/workflows/release.yml"));
 
         Assert.Contains("https://docs.viapost.io/openapi/public.yaml", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("raw.githubusercontent.com/ViaPost-io/base-code", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("curl --fail --location", workflow, StringComparison.Ordinal);
         Assert.Contains("scripts/download-openapi.rb", workflow, StringComparison.Ordinal);
         Assert.Contains("VIAPOST_OPENAPI_SOURCE", workflow, StringComparison.Ordinal);
+        Assert.Contains("source_commit", checker, StringComparison.Ordinal);
+        Assert.Contains("api.github.com/repos/${source_repository}/contents/${source_path}?ref=${source_commit}", checker, StringComparison.Ordinal);
+        Assert.Contains("VIAPOST_OPENAPI_COMMIT_SOURCE", checker, StringComparison.Ordinal);
+        Assert.Contains("VIAPOST_CONTRACT_SOURCE_TOKEN", checker, StringComparison.Ordinal);
+        Assert.Contains("GITHUB_TOKEN: ${{ github.token }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("VIAPOST_CONTRACT_SOURCE_TOKEN: ${{ secrets.VIAPOST_CONTRACT_SOURCE_TOKEN }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("VIAPOST_CONTRACT_SOURCE_TOKEN: ${{ secrets.VIAPOST_CONTRACT_SOURCE_TOKEN }}", release, StringComparison.Ordinal);
         Assert.Contains("YAML.safe_load", checker, StringComparison.Ordinal);
         Assert.DoesNotContain("cmp --silent", checker, StringComparison.Ordinal);
         Assert.Contains("anonymous_operations_not_exposed", checker, StringComparison.Ordinal);
