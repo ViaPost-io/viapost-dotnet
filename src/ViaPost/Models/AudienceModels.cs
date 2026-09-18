@@ -152,7 +152,7 @@ public abstract record Segment : ExtensibleModel
     public int? ContactCount { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
-    public abstract string Kind { get; }
+    public abstract string Kind { get; init; }
 }
 
 public sealed record StaticSegment : Segment
