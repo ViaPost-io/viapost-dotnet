@@ -38,6 +38,12 @@ public sealed class ContactsResource(ViaPostClient client) : ResourceBase(client
     public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
         Client.RequestNoContentAsync(HttpMethod.Delete, $"/v1/contacts/{Id(id)}", cancellationToken: cancellationToken);
 
+    public Task<ContactImportResult> ImportAsync(ReadOnlyMemory<byte> csv, CancellationToken cancellationToken = default)
+    {
+        if (csv.Length is < 1 or > 2 * 1024 * 1024) throw new ArgumentOutOfRangeException(nameof(csv), "CSV must contain 1 to 2097152 bytes.");
+        return Client.RequestContentAsync<ContactImportResult>(HttpMethod.Post, "/v1/contacts/import", csv.ToArray(), "text/csv", cancellationToken: cancellationToken);
+    }
+
     internal static void ValidatePage(string? cursor, int? limit, int maximumLimit, string parameterName)
     {
         if (cursor is { Length: 0 }) throw new ArgumentException("Cursor cannot be empty.", parameterName);
@@ -167,6 +173,14 @@ public sealed class SegmentsResource(ViaPostClient client) : ResourceBase(client
 
     public Task RemoveContactAsync(Guid id, Guid contactId, CancellationToken cancellationToken = default) =>
         Client.RequestNoContentAsync(HttpMethod.Delete, $"/v1/segments/{Id(id)}/contacts/{Id(contactId)}", cancellationToken: cancellationToken);
+
+    public Task<SegmentPreview> PreviewAsync(SegmentPreviewRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Definition.ValueKind != JsonValueKind.Object) throw new ArgumentException("Segment definition must be a JSON object.", nameof(request));
+        if (request.Limit is < 1 or > 50) throw new ArgumentOutOfRangeException(nameof(request), "Limit must be between 1 and 50.");
+        return Client.RequestAsync<SegmentPreview>(HttpMethod.Post, "/v1/segments/preview", request, cancellationToken: cancellationToken);
+    }
 
     private static void ValidateName(string value, string parameterName)
     {

@@ -82,6 +82,18 @@ public sealed record SendResult : ExtensibleModel
 public sealed record AcceptedMessage(Guid MessageId, string To);
 public sealed record RejectedMessage(string To, string Reason);
 
+public sealed record BatchSendMessage(string IdempotencyKey, SendEmailRequest Request);
+public sealed record BatchSendRequest(IReadOnlyList<BatchSendMessage> Messages);
+public sealed record BatchSendError(string Code, string Message);
+public sealed record BatchSendResultItem
+{
+    public int Index { get; init; }
+    public IReadOnlyList<AcceptedMessage>? Accepted { get; init; }
+    public IReadOnlyList<RejectedMessage>? Rejected { get; init; }
+    public BatchSendError? Error { get; init; }
+}
+public sealed record BatchSendResult { public IReadOnlyList<BatchSendResultItem> Results { get; init; } = []; }
+
 public record Message : ExtensibleModel
 {
     public Guid Id { get; init; }
@@ -134,6 +146,30 @@ public sealed record MessageEventList
 {
     public IReadOnlyList<MessageEvent> Events { get; init; } = [];
 }
+
+public sealed record MessageTimelineEvent : ExtensibleModel
+{
+    public Guid Id { get; init; }
+    public Guid MessageId { get; init; }
+    public string Type { get; init; } = string.Empty;
+    public DateTimeOffset OccurredAt { get; init; }
+    public string? Recipient { get; init; }
+    public int? SmtpCode { get; init; }
+    public string? EnhancedCode { get; init; }
+    public string? Diagnostic { get; init; }
+    public string? MxHost { get; init; }
+    public Uri? ClickUrl { get; init; }
+
+    public override string ToString() => $"{nameof(MessageTimelineEvent)} {{ Id = {Id}, MessageId = {MessageId}, Type = {Type}, Recipient = [REDACTED], Diagnostic = [REDACTED] }}";
+}
+
+public sealed record MessageTimelinePage
+{
+    public IReadOnlyList<MessageTimelineEvent> Data { get; init; } = [];
+    public string? NextCursor { get; init; }
+}
+
+public sealed record MessageTimelineOptions(string? Cursor = null, int? Limit = null, string? Period = null, string? Type = null, Guid? MessageId = null);
 
 public sealed record EngagementResponse(DateTimeOffset Since, long Delivered, long Opened, long Clicked);
 
@@ -198,6 +234,31 @@ public sealed record RotateDkimResponse : ExtensibleModel
     public string Selector { get; init; } = string.Empty;
     public string PublicKey { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
+}
+
+public sealed record InboundMXConfiguration(string Host, int Priority, string Status);
+public sealed record InboundDomainConfiguration(string RecipientDomain, string Status, InboundMXConfiguration Mx);
+
+public sealed record DomainHealthWindow(DateTimeOffset Start, DateTimeOffset End, int Days);
+public sealed record DomainHealthCheck(bool Verified, string Status, int? Points, int MaxPoints);
+public sealed record DomainHealthRateCheck(long Numerator, long Denominator, int? RateBasisPoints, string Status, int? Points, int MaxPoints);
+public sealed record DomainHealthChecks(DomainHealthCheck Spf, DomainHealthCheck Dkim, DomainHealthCheck Dmarc, DomainHealthRateCheck DeliveryRate, DomainHealthRateCheck BounceRate);
+public sealed record DomainHealthRecommendation(string Code, string Check, string Severity, string Message);
+public sealed record DomainHealth
+{
+    public Guid DomainId { get; init; }
+    public string DomainName { get; init; } = string.Empty;
+    public string DomainStatus { get; init; } = string.Empty;
+    public int? Score { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public string CalculationVersion { get; init; } = string.Empty;
+    public DateTimeOffset EvaluatedAt { get; init; }
+    public DateTimeOffset? DnsCheckedAt { get; init; }
+    public DomainHealthWindow Window { get; init; } = new(default, default, 30);
+    public int MinimumSampleSize { get; init; }
+    public long SampleSize { get; init; }
+    public DomainHealthChecks Checks { get; init; } = new(new(false, string.Empty, null, 10), new(false, string.Empty, null, 20), new(false, string.Empty, null, 15), new(0, 0, null, string.Empty, null, 35), new(0, 0, null, string.Empty, null, 20));
+    public IReadOnlyList<DomainHealthRecommendation> Recommendations { get; init; } = [];
 }
 
 public sealed record MonthlyUsage : ExtensibleModel

@@ -24,6 +24,7 @@ public sealed record ContactList
 }
 
 public sealed record ContactListOptions(string? Cursor = null, int? Limit = null, string? Search = null);
+public sealed record ContactImportResult(int Total, int Created, int Skipped, int Duplicates);
 
 public sealed record CreateContactRequest(string Email)
 {
@@ -171,6 +172,12 @@ public sealed record UpdateSegmentRequest
 }
 
 public sealed record SegmentContactRequest(Guid ContactId);
+public sealed record SegmentPreviewRequest(JsonElement Definition) { public int? Limit { get; init; } }
+public sealed record SegmentPreview
+{
+    public long ContactCount { get; init; }
+    public IReadOnlyList<Contact> Data { get; init; } = [];
+}
 
 public sealed record Suppression : ExtensibleModel
 {

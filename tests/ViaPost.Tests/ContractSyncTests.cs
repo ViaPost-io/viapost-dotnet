@@ -24,6 +24,7 @@ public sealed class ContractSyncTests
         await client.Contacts.GetAsync(id);
         await client.Contacts.UpdateAsync(id, new UpdateContactRequest { Subscribed = OptionalValue.From(false) });
         await client.Contacts.DeleteAsync(id);
+        await client.Contacts.ImportAsync(Encoding.UTF8.GetBytes("email,first_name,last_name,subscribed,properties\nperson@example.net,,,true,{}\n"));
 
         await client.Events.ListAsync();
         await client.Events.CreateAsync(new CreateCustomEventRequest("purchase") { Schema = json });
@@ -43,6 +44,7 @@ public sealed class ContractSyncTests
         await client.Segments.ListContactsAsync(id, new ContactListOptions("cursor", 10, "person"));
         await client.Segments.AddContactAsync(id, new SegmentContactRequest(relatedId));
         await client.Segments.RemoveContactAsync(id, relatedId);
+        await client.Segments.PreviewAsync(new SegmentPreviewRequest(JsonDocument.Parse("{\"operator\":\"all\",\"rules\":[]}").RootElement.Clone()) { Limit = 20 });
 
         await client.Suppressions.ListAsync(new SuppressionListOptions("cursor", 40, "person", "manual", "active", "manual"));
         await client.Suppressions.CreateAsync(new CreateSuppressionRequest("person@example.net", "manual") { Note = "Requested by customer" });
@@ -54,6 +56,11 @@ public sealed class ContractSyncTests
         await client.Themes.ListAsync();
         await client.Themes.CreateAsync(new CreateThemeRequest("Default", json));
         await client.Themes.DeleteAsync(id);
+        await client.Domains.GetHealthAsync(id);
+        await client.Domains.GetInboundAsync(id);
+        await client.Messages.ListTimelineAsync(new MessageTimelineOptions("cursor", 10, "7d", "delivered", id));
+        await client.Messages.CancelAsync(id);
+        await client.Send.SendBatchAsync(new BatchSendRequest([new BatchSendMessage("batch-1", new SendEmailRequest("sender@example.net", ["person@example.net"]) { Text = "Hello" })]));
 
         Assert.Equal(
         [
@@ -62,6 +69,7 @@ public sealed class ContractSyncTests
             "GET /v1/contacts/11111111-1111-1111-1111-111111111111",
             "PATCH /v1/contacts/11111111-1111-1111-1111-111111111111",
             "DELETE /v1/contacts/11111111-1111-1111-1111-111111111111",
+            "POST /v1/contacts/import",
             "GET /v1/events",
             "POST /v1/events",
             "POST /v1/events/send",
@@ -78,6 +86,7 @@ public sealed class ContractSyncTests
             "GET /v1/segments/11111111-1111-1111-1111-111111111111/contacts?cursor=cursor&limit=10&search=person",
             "POST /v1/segments/11111111-1111-1111-1111-111111111111/contacts",
             "DELETE /v1/segments/11111111-1111-1111-1111-111111111111/contacts/22222222-2222-2222-2222-222222222222",
+            "POST /v1/segments/preview",
             "GET /v1/suppressions?cursor=cursor&limit=40&search=person&reason=manual&state=active&origin=manual",
             "POST /v1/suppressions",
             "POST /v1/suppressions/import",
@@ -86,8 +95,14 @@ public sealed class ContractSyncTests
             "POST /v1/suppressions/11111111-1111-1111-1111-111111111111/release",
             "GET /v1/themes",
             "POST /v1/themes",
-            "DELETE /v1/themes/11111111-1111-1111-1111-111111111111"
+            "DELETE /v1/themes/11111111-1111-1111-1111-111111111111",
+            "GET /v1/domains/11111111-1111-1111-1111-111111111111/health",
+            "GET /v1/domains/11111111-1111-1111-1111-111111111111/inbound",
+            "GET /v1/messages/events?cursor=cursor&limit=10&period=7d&type=delivered&message_id=11111111-1111-1111-1111-111111111111",
+            "POST /v1/messages/11111111-1111-1111-1111-111111111111/cancel",
+            "POST /v1/send/batch"
         ], handler.Requests);
+        Assert.Equal("text/csv", handler.ContentTypes["/v1/contacts/import"]);
         Assert.Equal("text/csv", handler.ContentTypes["/v1/suppressions/import"]);
         Assert.Equal("text/csv", handler.AcceptTypes["/v1/suppressions/export?search=person&reason=manual&state=active&origin=manual"]);
     }
