@@ -143,9 +143,7 @@ public sealed record InboundMessageDetail : InboundMessage
     public override string ToString() => $"{nameof(InboundMessageDetail)} {{ Id = {Id}, BodyHtml = [REDACTED], BodyPlain = [REDACTED], RawMessageUrl = [REDACTED], ContentStatus = {ContentStatus} }}";
 }
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
-[JsonDerivedType(typeof(StaticSegment), "static")]
-[JsonDerivedType(typeof(DynamicSegment), "dynamic")]
+[JsonConverter(typeof(SegmentJsonConverter))]
 public abstract record Segment : ExtensibleModel
 {
     public Guid Id { get; init; }
@@ -154,21 +152,18 @@ public abstract record Segment : ExtensibleModel
     public int? ContactCount { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
-    [JsonIgnore]
     public abstract string Kind { get; }
 }
 
 public sealed record StaticSegment : Segment
 {
-    [JsonIgnore]
-    public override string Kind => "static";
+    public override string Kind { get; init; } = "static";
     public JsonElement? Definition { get; init; }
 }
 
 public sealed record DynamicSegment : Segment
 {
-    [JsonIgnore]
-    public override string Kind => "dynamic";
+    public override string Kind { get; init; } = "dynamic";
     public JsonElement Definition { get; init; }
 }
 
@@ -189,6 +184,35 @@ public sealed record StaticSegmentCreateRequest(string Name) : CreateSegmentRequ
 public sealed record DynamicSegmentCreateRequest(string Name, JsonElement Definition) : CreateSegmentRequest(Name)
 {
     public string Kind { get; init; } = "dynamic";
+}
+
+public sealed class SegmentJsonConverter : JsonConverter<Segment>
+{
+    public override Segment Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("kind", out var kind) || kind.GetString() is not ("static" or "dynamic") discriminator)
+            throw new JsonException("Segment response must include kind static or dynamic.");
+        return discriminator == "static"
+            ? JsonSerializer.Deserialize<StaticSegment>(root.GetRawText(), options)!
+            : JsonSerializer.Deserialize<DynamicSegment>(root.GetRawText(), options)!;
+    }
+
+    public override void Write(Utf8JsonWriter writer, Segment value, JsonSerializerOptions options)
+    {
+        switch (value)
+        {
+            case StaticSegment staticSegment:
+                JsonSerializer.Serialize(writer, staticSegment, options);
+                break;
+            case DynamicSegment dynamicSegment:
+                JsonSerializer.Serialize(writer, dynamicSegment, options);
+                break;
+            default:
+                throw new JsonException("Unsupported segment response type.");
+        }
+    }
 }
 
 public sealed record UpdateSegmentRequest
