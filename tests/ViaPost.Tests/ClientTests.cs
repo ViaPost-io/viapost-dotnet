@@ -463,7 +463,7 @@ public sealed class ClientTests
             ScheduledAt = scheduledAt
         }, "scheduled-1");
 
-        using var document = JsonDocument.Parse(handler.Requests.Single().Body);
+        using var document = JsonDocument.Parse(handler.Requests.Single().Body!);
         Assert.Equal("2030-01-02T03:04:05+00:00", document.RootElement.GetProperty("scheduled_at").GetString());
         Assert.Equal("scheduled", document.RootElement.GetProperty("text").GetString());
     }
@@ -506,8 +506,8 @@ public sealed class ClientTests
         await client.Segments.CreateAsync(new StaticSegmentCreateRequest("Static"));
         await client.Segments.CreateAsync(new DynamicSegmentCreateRequest("Dynamic", definition));
 
-        using var staticBody = JsonDocument.Parse(handler.Requests[0].Body);
-        using var dynamicBody = JsonDocument.Parse(handler.Requests[1].Body);
+        using var staticBody = JsonDocument.Parse(handler.Requests[0].Body!);
+        using var dynamicBody = JsonDocument.Parse(handler.Requests[1].Body!);
         Assert.Equal("static", staticBody.RootElement.GetProperty("kind").GetString());
         Assert.False(staticBody.RootElement.TryGetProperty("definition", out _));
         Assert.Equal("dynamic", dynamicBody.RootElement.GetProperty("kind").GetString());
