@@ -37,7 +37,7 @@ public sealed class ContractSyncTests
         await client.InboundMessages.GetRawAsync(id);
 
         await client.Segments.ListAsync(new SegmentListOptions("cursor", 30, "buyers"));
-        await client.Segments.CreateAsync(new CreateSegmentRequest("Buyers") { Description = "Recent buyers" });
+        await client.Segments.CreateAsync(new StaticSegmentCreateRequest("Buyers") { Description = "Recent buyers" });
         await client.Segments.GetAsync(id);
         await client.Segments.UpdateAsync(id, new UpdateSegmentRequest { Description = OptionalValue.From<string?>(null) });
         await client.Segments.DeleteAsync(id);

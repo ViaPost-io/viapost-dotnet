@@ -451,6 +451,70 @@ public sealed class ClientTests
     }
 
     [Fact]
+    public async Task Scheduled_send_serializes_the_contract_timestamp_field()
+    {
+        var handler = new QueueHandler(_ => Json(HttpStatusCode.Accepted, "{}"));
+        using var client = Create(handler);
+        var scheduledAt = new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero);
+
+        await client.Send.SendAsync(new SendEmailRequest("from@example.com", ["to@example.com"])
+        {
+            Text = "scheduled",
+            ScheduledAt = scheduledAt
+        }, "scheduled-1");
+
+        using var document = JsonDocument.Parse(handler.Requests.Single().Body);
+        Assert.Equal("2030-01-02T03:04:05+00:00", document.RootElement.GetProperty("scheduled_at").GetString());
+        Assert.Equal("scheduled", document.RootElement.GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task Message_and_segment_variants_deserialize_the_contract_shapes()
+    {
+        var id = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var handler = new QueueHandler(
+            _ => Json(HttpStatusCode.OK, $$"""{"id":"{{id}}","status":"cancelled","stream":"transactional","from_address":"from@example.com","to_address":"to@example.com","recipient_domain":"example.com","created_at":"2026-09-16T00:00:00Z","scheduled_at":"2026-09-17T00:00:00Z","cancelled_at":"2026-09-16T01:00:00Z","suppressed_at":null}"""),
+            _ => Json(HttpStatusCode.OK, $$"""{"id":"{{id}}","name":"Static","description":null,"kind":"static","definition":null,"contact_count":2,"created_at":"2026-09-16T00:00:00Z","updated_at":"2026-09-16T00:00:01Z"}"""),
+            _ => Json(HttpStatusCode.OK, $$"""{"id":"{{id}}","name":"Dynamic","description":"rule based","kind":"dynamic","definition":{"operator":"all","rules":[]},"contact_count":3,"created_at":"2026-09-16T00:00:00Z","updated_at":"2026-09-16T00:00:01Z"}"""));
+        using var client = Create(handler);
+
+        var message = await client.Messages.CancelAsync(id);
+        var staticSegment = await client.Segments.GetAsync(id);
+        var dynamicSegment = await client.Segments.GetAsync(id);
+
+        Assert.Equal(DateTimeOffset.Parse("2026-09-17T00:00:00Z"), message.ScheduledAt);
+        Assert.Equal(DateTimeOffset.Parse("2026-09-16T01:00:00Z"), message.CancelledAt);
+        Assert.Null(message.SuppressedAt);
+        var staticShape = Assert.IsType<StaticSegment>(staticSegment);
+        Assert.Equal("static", staticShape.Kind);
+        Assert.True(staticShape.Definition is null || staticShape.Definition.Value.ValueKind == JsonValueKind.Null);
+        var dynamicShape = Assert.IsType<DynamicSegment>(dynamicSegment);
+        Assert.Equal("dynamic", dynamicShape.Kind);
+        Assert.Equal("all", dynamicShape.Definition.GetProperty("operator").GetString());
+    }
+
+    [Fact]
+    public async Task Static_and_dynamic_segment_requests_serialize_discriminated_shapes()
+    {
+        var id = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var handler = new QueueHandler(
+            _ => Json(HttpStatusCode.OK, $$"""{"id":"{{id}}","name":"Static","description":null,"kind":"static","definition":null,"contact_count":0,"created_at":"2026-09-16T00:00:00Z","updated_at":"2026-09-16T00:00:00Z"}"""),
+            _ => Json(HttpStatusCode.OK, $$"""{"id":"{{id}}","name":"Dynamic","description":null,"kind":"dynamic","definition":{"operator":"any","rules":[]},"contact_count":0,"created_at":"2026-09-16T00:00:00Z","updated_at":"2026-09-16T00:00:00Z"}"""));
+        using var client = Create(handler);
+        var definition = JsonDocument.Parse("{\"operator\":\"any\",\"rules\":[]}").RootElement.Clone();
+
+        await client.Segments.CreateAsync(new StaticSegmentCreateRequest("Static"));
+        await client.Segments.CreateAsync(new DynamicSegmentCreateRequest("Dynamic", definition));
+
+        using var staticBody = JsonDocument.Parse(handler.Requests[0].Body);
+        using var dynamicBody = JsonDocument.Parse(handler.Requests[1].Body);
+        Assert.Equal("static", staticBody.RootElement.GetProperty("kind").GetString());
+        Assert.False(staticBody.RootElement.TryGetProperty("definition", out _));
+        Assert.Equal("dynamic", dynamicBody.RootElement.GetProperty("kind").GetString());
+        Assert.Equal("any", dynamicBody.RootElement.GetProperty("definition").GetProperty("operator").GetString());
+    }
+
+    [Fact]
     public async Task Webhook_operations_send_expected_idempotency_keys()
     {
         var endpointId = Guid.Parse("11111111-1111-1111-1111-111111111111");
