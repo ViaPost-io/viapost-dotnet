@@ -87,7 +87,7 @@ public sealed class WorkflowContractTests
             "/v1/contacts/import:",
             "/v1/domains/{domain_id}/tracking-domains:",
             "/v1/segments:",
-            "/v1/broadcasts:",
+            "/v1/segments/preview:",
         })
         {
             Assert.Contains(path, contract, StringComparison.Ordinal);
