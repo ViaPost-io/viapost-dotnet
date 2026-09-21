@@ -57,6 +57,8 @@ jobs:
       - name: Verify version and contract
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          VIAPOST_CONTRACT_SOURCE_TOKEN: ${{ secrets.VIAPOST_CONTRACT_SOURCE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           scripts/check-release-tag.sh "$RELEASE_TAG"
           scripts/check-openapi.sh

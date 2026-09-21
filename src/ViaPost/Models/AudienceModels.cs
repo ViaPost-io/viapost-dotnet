@@ -24,6 +24,7 @@ public sealed record ContactList
 }
 
 public sealed record ContactListOptions(string? Cursor = null, int? Limit = null, string? Search = null);
+public sealed record ContactImportResult(int Total, int Created, int Skipped, int Duplicates);
 
 public sealed record CreateContactRequest(string Email)
 {
@@ -142,7 +143,8 @@ public sealed record InboundMessageDetail : InboundMessage
     public override string ToString() => $"{nameof(InboundMessageDetail)} {{ Id = {Id}, BodyHtml = [REDACTED], BodyPlain = [REDACTED], RawMessageUrl = [REDACTED], ContentStatus = {ContentStatus} }}";
 }
 
-public sealed record Segment : ExtensibleModel
+[JsonConverter(typeof(SegmentJsonConverter))]
+public abstract record Segment : ExtensibleModel
 {
     public Guid Id { get; init; }
     public string Name { get; init; } = string.Empty;
@@ -150,6 +152,19 @@ public sealed record Segment : ExtensibleModel
     public int? ContactCount { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
+    public abstract string Kind { get; init; }
+}
+
+public sealed record StaticSegment : Segment
+{
+    public override string Kind { get; init; } = "static";
+    public JsonElement? Definition { get; init; }
+}
+
+public sealed record DynamicSegment : Segment
+{
+    public override string Kind { get; init; } = "dynamic";
+    public JsonElement Definition { get; init; }
 }
 
 public sealed record SegmentList
@@ -159,7 +174,49 @@ public sealed record SegmentList
 }
 
 public sealed record SegmentListOptions(string? Cursor = null, int? Limit = null, string? Search = null);
-public sealed record CreateSegmentRequest(string Name) { public string? Description { get; init; } }
+public abstract record CreateSegmentRequest(string Name) { public string? Description { get; init; } }
+
+public sealed record StaticSegmentCreateRequest(string Name) : CreateSegmentRequest(Name)
+{
+    public string Kind { get; init; } = "static";
+}
+
+public sealed record DynamicSegmentCreateRequest(string Name, JsonElement Definition) : CreateSegmentRequest(Name)
+{
+    public string Kind { get; init; } = "dynamic";
+}
+
+public sealed class SegmentJsonConverter : JsonConverter<Segment>
+{
+    public override Segment Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("kind", out var kind))
+            throw new JsonException("Segment response must include kind static or dynamic.");
+        var discriminator = kind.GetString();
+        if (discriminator is not "static" and not "dynamic")
+            throw new JsonException("Segment response must include kind static or dynamic.");
+        return discriminator == "static"
+            ? JsonSerializer.Deserialize<StaticSegment>(root.GetRawText(), options)!
+            : JsonSerializer.Deserialize<DynamicSegment>(root.GetRawText(), options)!;
+    }
+
+    public override void Write(Utf8JsonWriter writer, Segment value, JsonSerializerOptions options)
+    {
+        switch (value)
+        {
+            case StaticSegment staticSegment:
+                JsonSerializer.Serialize(writer, staticSegment, options);
+                break;
+            case DynamicSegment dynamicSegment:
+                JsonSerializer.Serialize(writer, dynamicSegment, options);
+                break;
+            default:
+                throw new JsonException("Unsupported segment response type.");
+        }
+    }
+}
 
 public sealed record UpdateSegmentRequest
 {
@@ -171,6 +228,12 @@ public sealed record UpdateSegmentRequest
 }
 
 public sealed record SegmentContactRequest(Guid ContactId);
+public sealed record SegmentPreviewRequest(JsonElement Definition) { public int? Limit { get; init; } }
+public sealed record SegmentPreview
+{
+    public long ContactCount { get; init; }
+    public IReadOnlyList<Contact> Data { get; init; } = [];
+}
 
 public sealed record Suppression : ExtensibleModel
 {
