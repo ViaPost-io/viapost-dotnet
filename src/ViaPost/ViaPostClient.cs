@@ -10,7 +10,7 @@ namespace ViaPost;
 
 public sealed class ViaPostClient : IDisposable
 {
-    public const string SdkVersion = "0.2.0";
+    public const string SdkVersion = "0.2.1";
 
     private static readonly string[] SensitiveFieldNames =
         ["secret", "token", "password", "api_key", "authorization", "cookie"];

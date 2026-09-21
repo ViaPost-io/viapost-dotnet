@@ -62,7 +62,7 @@ public sealed class ClientTests
         Assert.Equal("Bearer", request.AuthorizationScheme);
         Assert.Equal("test-secret", request.AuthorizationParameter);
         Assert.Equal("idem-1", request.IdempotencyKey);
-        Assert.Contains("viapost-dotnet/0.2.0", request.UserAgent);
+        Assert.Contains("viapost-dotnet/0.2.1", request.UserAgent);
         Assert.DoesNotContain("test-secret", request.Uri, StringComparison.Ordinal);
     }
 

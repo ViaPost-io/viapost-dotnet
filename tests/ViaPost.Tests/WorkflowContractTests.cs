@@ -77,6 +77,23 @@ public sealed class WorkflowContractTests
         Assert.Contains("VERIFY_PEER", downloader, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Bundled_contract_includes_the_current_public_endpoint_families()
+    {
+        var contract = File.ReadAllText(RepoFile("openapi.yaml"));
+
+        foreach (var path in new[]
+        {
+            "/v1/contacts/import:",
+            "/v1/domains/{domain_id}/tracking-domains:",
+            "/v1/segments:",
+            "/v1/segments/preview:",
+        })
+        {
+            Assert.Contains(path, contract, StringComparison.Ordinal);
+        }
+    }
+
     private static string RepoFile(string relativePath)
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1] - 2026-09-21
+
+- Sincroniza o bundle OpenAPI 3.1 com o contrato público publicado, incluindo importação de
+  contatos, domínios de tracking, segmentos de audiência, configurações de inbound e fundações de
+  broadcasts. Esta atualização de artefato não declara novos métodos tipados que ainda não foram
+  implementados pelo cliente.
+
 ## [0.2.0] - 2026-09-16
 
 - Sincroniza a superfície autenticada com o contrato público para contatos, eventos personalizados,

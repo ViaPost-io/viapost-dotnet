@@ -7,7 +7,7 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <PackageId>ViaPost</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Authors>ViaPost</Authors>
     <Company>ViaPost</Company>
     <Description>Official server-side .NET SDK for the ViaPost API.</Description>

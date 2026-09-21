@@ -1,12 +1,12 @@
 {
   "source_repository": "ViaPost-io/base-code",
   "source_path": "docs/openapi/public.yaml",
-  "source_commit": "891adebbe79a26178fb780ec986172c890a5e261",
-  "snapshot_sha256": "cb61b81b3276679426504eae4161e610eb5520aca2cd71cd267ed62628c518e4",
+  "source_commit": "a8d78b4dc2140d3ceee2dbc52eb9ee438b640560",
+  "snapshot_sha256": "4296cf369c8a2b1e27f215fddc36dbafb4203aa35c509095df1048243b8da847",
   "published_url": "https://docs.viapost.io/openapi/public.yaml",
-  "published_representation_sha256": "f1b1fc0f198a2b0b36f0e893515dad191d6bb7d139fcf1e942c036bfa2f5169b",
+  "published_representation_sha256": "4296cf369c8a2b1e27f215fddc36dbafb4203aa35c509095df1048243b8da847",
   "comparison": "semantic-yaml",
-  "authenticated_operation_count": 80,
+  "authenticated_operation_count": 94,
   "anonymous_operations_not_exposed": [
     "getHealth",
     "getHealthReady",
