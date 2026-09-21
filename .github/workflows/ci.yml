@@ -34,7 +34,6 @@ jobs:
       - run: scripts/check-openapi.sh
         env:
           VIAPOST_CONTRACT_SOURCE_TOKEN: ${{ secrets.VIAPOST_CONTRACT_SOURCE_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
       - run: scripts/test-openapi-checker.sh
       - run: scripts/test-openapi-downloader.rb
       - run: dotnet restore ViaPost.sln --locked-mode
