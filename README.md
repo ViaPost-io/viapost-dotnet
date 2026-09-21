@@ -11,15 +11,15 @@ O GitHub é o canal principal e não exige token para downloads públicos:
 
 ```bash
 mkdir -p packages
-gh release download v0.2.0 --repo ViaPost-io/viapost-dotnet --dir packages \
-  --pattern 'ViaPost.0.2.0.nupkg' --pattern 'ViaPost.0.2.0.snupkg' --pattern SHA256SUMS
+gh release download v0.2.1 --repo ViaPost-io/viapost-dotnet --dir packages \
+  --pattern 'ViaPost.0.2.1.nupkg' --pattern 'ViaPost.0.2.1.snupkg' --pattern SHA256SUMS
 (cd packages && sha256sum -c SHA256SUMS)
-source_sha="$(gh api repos/ViaPost-io/viapost-dotnet/commits/v0.2.0 --jq .sha)"
-gh attestation verify packages/ViaPost.0.2.0.nupkg \
+source_sha="$(gh api repos/ViaPost-io/viapost-dotnet/commits/v0.2.1 --jq .sha)"
+gh attestation verify packages/ViaPost.0.2.1.nupkg \
   --repo ViaPost-io/viapost-dotnet \
   --source-digest "$source_sha" \
   --signer-workflow ViaPost-io/viapost-dotnet/.github/workflows/release.yml
-dotnet add package ViaPost --version 0.2.0 --source ./packages
+dotnet add package ViaPost --version 0.2.1 --source ./packages
 ```
 
 O exemplo valida checksum e proveniência antes da instalação. No macOS sem `sha256sum`, use
@@ -30,8 +30,8 @@ Mantenedores publicam no NuGet somente a partir da própria tag, depois da aprov
 protegido `nuget`; o workflow baixa e republica o artefato já atestado, sem recompilar:
 
 ```bash
-gh workflow run release.yml --repo ViaPost-io/viapost-dotnet --ref v0.2.0 \
-  -f tag=v0.2.0 -f publish_nuget=true
+gh workflow run release.yml --repo ViaPost-io/viapost-dotnet --ref v0.2.1 \
+  -f tag=v0.2.1 -f publish_nuget=true
 ```
 
 ## Enviar e-mail
@@ -114,12 +114,10 @@ resource methods. Every operation accepts `CancellationToken`; only safe reads a
 ## Contrato
 
 `openapi.yaml` é um bundle imutável do contrato público no commit
-`891adebbe79a26178fb780ec986172c890a5e261`, SHA-256
-`cb61b81b3276679426504eae4161e610eb5520aca2cd71cd267ed62628c518e4`. A representação publicada
-em `https://docs.viapost.io/openapi/public.yaml` tem SHA-256
-`f1b1fc0f198a2b0b36f0e893515dad191d6bb7d139fcf1e942c036bfa2f5169b` e é comparada
-semanticamente, pois a serialização YAML publicada é deliberadamente diferente. Os metadados
-auditáveis estão em `openapi-source.json`.
+`a8d78b4dc2140d3ceee2dbc52eb9ee438b640560`, SHA-256
+`4296cf369c8a2b1e27f215fddc36dbafb4203aa35c509095df1048243b8da847`. A representação publicada
+em `https://docs.viapost.io/openapi/public.yaml` tem o mesmo SHA-256 e é comparada
+semanticamente. Os metadados auditáveis estão em `openapi-source.json`.
 
 O monitor baixa esse contrato somente por HTTPS, com timeout, corpo máximo de 8 MiB e no máximo
 três redirects na mesma origem.
